@@ -81,7 +81,18 @@ function boot(){
   if(dataErr.length) showFatal('資料檢查發現 '+dataErr.length+' 個問題：'+String.fromCharCode(10)+dataErr.join(String.fromCharCode(10)));
   if(!cssOK) showFatal('style.css 沒有套用（可能是路徑錯誤或 404），版面與點擊行為都會不正常。');
 
-  // 3) 鍵盤快捷鍵
+  // 3) 視窗太窄時收合相剋表。1042px 是算出來的臨界值：
+  //    面板右緣 236px + 20px 間距，兩側對稱再加上 264px 的盤面與 250px 的戰報欄。
+  const CODEX_MIN_W=1042;
+  const fitCodex=()=>{
+    if(typeof innerWidth==='number' && innerWidth < CODEX_MIN_W && codexOpen){
+      codexOpen=false; renderCodex();
+    }
+  };
+  fitCodex();
+  if(typeof addEventListener==='function') addEventListener('resize',fitCodex);
+
+  // 4) 鍵盤快捷鍵
   document.addEventListener('keydown',e=>{
     if(!G||G.over||!document.getElementById('battle').classList.contains('active')) return;
     if(e.key==='Escape'){                       // 取消選取／指定模式
@@ -94,10 +105,10 @@ function boot(){
     }
   });
 
-  // 4) 檢查程式碼依賴的「id 當全域變數」是否真的成立
+  // 5) 檢查程式碼依賴的「id 當全域變數」是否真的成立
   const need=['gemHud','civList','pool','deckList','deckCount','startBtn','packResult','turnInfo',
     'enemyInfo','hint','board','log','castleP','castleE','php','ehp','goldTxt','deckTxt',
-    'villGold','villLand','heroBtn','endBtn','hand','banner','bTitle','bText','buffTxt','undoBtn','bOk','bCancel','mullBanner','mullCards','mullOk','fx'];
+    'villGold','villLand','heroBtn','endBtn','hand','banner','bTitle','bText','buffTxt','undoBtn','bOk','bCancel','mullBanner','mullCards','mullOk','fx','codex'];
   const bad=need.filter(id=>{
     const el=document.getElementById(id);
     if(!el) return true;                 // HTML 裡根本沒這個元素
@@ -105,7 +116,7 @@ function boot(){
   });
   if(bad.length) showFatal('以下 id 無法用全域變數存取，程式會在用到它們時中斷：'+bad.join(', '));
 
-  // 5) 點擊探針：用 elementFromPoint 找出滑鼠位置最上層的元素
+  // 6) 點擊探針：用 elementFromPoint 找出滑鼠位置最上層的元素
   const probe=document.getElementById('probe');
   if(probe){
     if(!location.search.includes('debug')) probe.classList.add('hide');  // 需要除錯時網址加 ?debug
@@ -959,6 +970,52 @@ function clickCastle(side){
 }
 
 /* =========================================================
+   兵種相剋表
+   ---------------------------------------------------------
+   內容由 COUNTER_TABLE 推導，不另外寫死 —— 改相剋規則時這裡會自動跟上。
+   選取單位後會高亮「它剋誰」與「誰剋它」，讓它從靜態說明變成當下的決策輔助。
+   ========================================================= */
+const NORMAL_KINDS=['I','C','R'];
+function counterRows(){
+  const tri=[], siegeSet=new Set();
+  Object.keys(COUNTER_TABLE).forEach(a=>{
+    COUNTER_TABLE[a].forEach(b=>{
+      const an=NORMAL_KINDS.includes(a), bn=NORMAL_KINDS.includes(b);
+      if(an&&bn) tri.push([a,b]);
+      else siegeSet.add((an?'*':a)+'>'+(bn?'*':b));   // 一般單位合併成一列
+    });
+  });
+  const siege=[...siegeSet].map(s=>s.split('>'));
+  return {tri, siege};
+}
+let codexOpen = true;
+function toggleCodex(){ codexOpen=!codexOpen; renderCodex(); }
+function kindLabel(k){ return k==='*' ? '🗡🐎🏹 一般單位' : KIND_NAME[k]; }
+function renderCodex(){
+  const el=document.getElementById('codex');
+  if(!el||typeof el.appendChild!=='function') return;
+  const sel=G&&G.selUnit&&G.selUnit.hp>0?G.selUnit:null;
+  const k=sel?sel.kind:null;
+  const {tri,siege}=counterRows();
+  const row=([a,b])=>{
+    const match=k&&(a===k||(a==='*'&&NORMAL_KINDS.includes(k)));
+    const beaten=k&&(b===k||(b==='*'&&NORMAL_KINDS.includes(k)));
+    return `<div class="row${match?' on':''}${beaten?' weak':''}">`
+      + `<span>${kindLabel(a)}</span><span class="arrow">剋</span><span>${kindLabel(b)}</span></div>`;
+  };
+  el.className='codex'+(codexOpen?'':' mini');
+  el.innerHTML =
+    `<div class="head"><b>兵種相剋 +${COUNTER_BONUS}</b>`
+    + `<span class="tgl" title="收合／展開">${codexOpen?'▾':'▸'}</span></div>`
+    + (codexOpen ? `<div class="body">
+        <div class="sec">兵種三角</div>${tri.map(row).join('')}
+        <div class="sec">攻城三角</div>${siege.map(row).join('')}
+        <div class="note">${sel?'高亮 = 目前選取單位的相剋關係':'選取單位後會標出相關的相剋'}</div>
+      </div>` : '');
+  el.onclick=toggleCodex;
+}
+
+/* =========================================================
    渲染
    ========================================================= */
 function render(){
@@ -1062,6 +1119,7 @@ function render(){
     }
     board.appendChild(row);
   }
+  renderCodex();
   playFx();
 
   // 手牌

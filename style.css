@@ -61,7 +61,7 @@ h1,h2,h3{font-weight:700;margin:0}
 #battle{flex-direction:column}
 .war{flex:1;display:flex;min-height:0}
 .field{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;
-  padding:10px;overflow:auto}
+  padding:10px;overflow:auto;position:relative}
 .side{display:flex;flex-direction:column;align-items:center;gap:12px}
 .castle{width:264px;border:1px solid var(--line);border-radius:10px;padding:5px 12px;background:var(--panel);
   display:flex;align-items:center;justify-content:center;gap:14px;font-size:13px}
@@ -225,3 +225,30 @@ h1,h2,h3{font-weight:700;margin:0}
   0%  {opacity:.95;transform:scale(1)}
   100%{opacity:0;transform:scale(.55) rotate(10deg)}
 }
+
+/* =========================================================
+   兵種相剋表
+   ---------------------------------------------------------
+   盤面改成縱向後只有 264px 寬，兩側是空的（1024px 視窗仍各有 255px），
+   所以放在左側的空白區。用絕對定位是為了讓盤面維持在畫面正中央。
+   ========================================================= */
+.codex{position:absolute;left:14px;top:50%;transform:translateY(-50%);
+  width:200px;background:var(--panel);border:1px solid var(--line);border-radius:10px;
+  padding:9px 11px;font-size:11.5px;color:var(--dim);cursor:pointer;user-select:none;
+  box-shadow:0 4px 18px rgba(0,0,0,.35)}
+.codex .head{color:var(--ink);display:flex;justify-content:space-between;align-items:center}
+.codex .tgl{color:var(--gold2);font-size:13px;line-height:1}
+.codex .sec{margin:9px 0 3px;color:var(--gold2);font-size:10.5px;letter-spacing:.05em}
+.codex .row{display:flex;align-items:center;gap:5px;padding:3px 5px;margin:1px -5px;
+  border-radius:5px;white-space:nowrap;transition:background .15s,color .15s}
+.codex .row .arrow{color:#7d705c;font-size:10px}
+/* 選取單位後：它能剋制的用金色、剋制它的用紅色 */
+.codex .row.on{background:rgba(216,180,90,.18);color:var(--gold2)}
+.codex .row.on .arrow{color:var(--gold2)}
+.codex .row.weak{background:rgba(196,85,63,.2);color:#ffb4a2}
+.codex .row.weak .arrow{color:#ffb4a2}
+.codex .note{margin-top:9px;padding-top:7px;border-top:1px solid var(--line);
+  font-size:10px;line-height:1.5;color:#7d705c;white-space:normal}
+/* 收合狀態：縮成一個小標籤 */
+.codex.mini{width:auto;padding:7px 10px}
+.codex.mini .head{gap:8px}

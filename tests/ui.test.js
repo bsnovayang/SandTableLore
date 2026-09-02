@@ -12,8 +12,16 @@ if (!L.hasJsdom()) {
 } else {
   const { JSDOM } = require('jsdom');
 
-  function boot() {
-    const dom = new JSDOM(L.html(), { runScripts: 'dangerously', pretendToBeVisual: true, url: 'http://localhost/x/' });
+  // jsdom 預設 innerWidth 是 1024，會觸發相剋表的窄視窗自動收合。
+  // 預設模擬桌機寬度，需要測窄視窗時傳 {width:900}。
+  function boot(opts) {
+    const o = opts || {};
+    const dom = new JSDOM(L.html(), {
+      runScripts: 'dangerously', pretendToBeVisual: true, url: 'http://localhost/x/',
+      beforeParse(window) {
+        Object.defineProperty(window, 'innerWidth', { value: o.width || 1400, configurable: true });
+      },
+    });
     const w = dom.window, d = w.document;
     const api = {
       w, d,
@@ -336,6 +344,80 @@ if (!L.hasJsdom()) {
     const el = g.d.querySelector('#board .unit');
     ok(el.classList.contains('slide'), '應加上動畫 class');
     eq(g.run('G.units[0].anim'), null, '播放後應清掉，避免重複觸發');
+  });
+
+  suite('介面 · 相剋表');
+
+  test('內容由 COUNTER_TABLE 推導，不是寫死的', async () => {
+    const g = await boot();
+    g.run("go('deckbuild'); autoFill(); startBattle(); finishMulligan();");
+    const rows = [...g.d.querySelectorAll('#codex .row')].map(r => r.textContent);
+    eq(rows.length, 6, '兵種三角 3 條 + 攻城三角 3 條');
+    ok(rows.some(t => t.includes('遠程') && t.includes('步兵')), '應有 遠程剋步兵');
+    ok(rows.some(t => t.includes('攻城') && t.includes('建築')), '應有 攻城剋建築');
+    ok(g.d.querySelector('#codex .head').textContent.includes(String(g.run('COUNTER_BONUS'))),
+      '標題應顯示實際的加成值');
+  });
+
+  test('改了相剋表，面板會自動跟著變', async () => {
+    const g = await boot();
+    g.run("go('deckbuild'); autoFill(); startBattle(); finishMulligan();");
+    const before = g.d.querySelectorAll('#codex .row').length;
+    // 拿掉「攻城剋建築」。注意不能拿 R→S 之類的來測：
+    // 一般單位剋攻城在面板上是合併成一列的，少一種來源不會少一列。
+    g.run("COUNTER_TABLE.S = []; renderCodex();");
+    const rows = [...g.d.querySelectorAll('#codex .row')].map(r => r.textContent);
+    eq(rows.length, before - 1, '應少一列');
+    ok(!rows.some(t => t.includes('🔨攻城') && t.includes('🏰建築')), '該關係應消失');
+  });
+
+  test('選取單位會標出它剋誰、誰剋它', async () => {
+    const g = await boot();
+    g.run("go('deckbuild'); autoFill(); startBattle(); finishMulligan();");
+    g.run(`G.units=[]; G.selUnit=null; G.P.front=[COLS,COLS,COLS]; G.P.gold=99;
+           G.P.hand=['archer']; playCard('P',0,1,1); G.units[0].sick=false;
+           clickUnit(G.units[0]);`);
+    const on = [...g.d.querySelectorAll('#codex .row.on')].map(r => r.textContent);
+    const weak = [...g.d.querySelectorAll('#codex .row.weak')].map(r => r.textContent);
+    ok(on.some(t => t.startsWith('🏹遠程')), '弓兵應高亮「遠程剋步兵」，實際：' + on.join(' / '));
+    ok(weak.some(t => t.includes('🐎騎兵')), '應標出騎兵剋遠程，實際：' + weak.join(' / '));
+  });
+
+  test('沒選單位時不做任何高亮', async () => {
+    const g = await boot();
+    g.run("go('deckbuild'); autoFill(); startBattle(); finishMulligan();");
+    g.run('G.selUnit=null; render();');
+    eq(g.d.querySelectorAll('#codex .row.on, #codex .row.weak').length, 0);
+  });
+
+  test('可以收合成小標籤', async () => {
+    const g = await boot();
+    g.run("go('deckbuild'); autoFill(); startBattle(); finishMulligan();");
+    ok(g.d.querySelectorAll('#codex .row').length > 0, '預設展開');
+    g.run('toggleCodex()');
+    eq(g.d.querySelectorAll('#codex .row').length, 0, '收合後不顯示內容');
+    ok(g.d.getElementById('codex').className.includes('mini'));
+    g.run('toggleCodex()');
+    ok(g.d.querySelectorAll('#codex .row').length > 0, '可再展開');
+  });
+
+  test('視窗太窄時自動收合，避免蓋住盤面', async () => {
+    const wide = await boot({ width: 1400 });
+    wide.run("go('deckbuild'); autoFill(); startBattle(); finishMulligan();");
+    ok(wide.d.querySelectorAll('#codex .row').length > 0, '寬視窗應展開');
+
+    const narrow = await boot({ width: 900 });
+    narrow.run("go('deckbuild'); autoFill(); startBattle(); finishMulligan();");
+    eq(narrow.d.querySelectorAll('#codex .row').length, 0, '窄視窗應收合');
+    ok(narrow.d.getElementById('codex').className.includes('mini'));
+  });
+
+  test('相剋表不會蓋住盤面（盤面維持置中）', async () => {
+    const g = await boot();
+    g.run("go('deckbuild'); autoFill(); startBattle(); finishMulligan();");
+    const cx = g.w.getComputedStyle(g.d.getElementById('codex'));
+    eq(cx.position, 'absolute', '用絕對定位才不會把盤面推偏');
+    eq(g.w.getComputedStyle(g.d.querySelector('.field')).position, 'relative', '需要定位基準');
   });
 
   suite('介面 · 攻擊特效');

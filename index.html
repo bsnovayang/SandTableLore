@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>沙盤傳說 — 中世紀卡牌戰棋</title>
-<link rel="stylesheet" href="style.css?v=25">
+<link rel="stylesheet" href="style.css?v=27">
 </head>
 <body>
 <div id="fatal"></div>
@@ -75,6 +75,8 @@
   </div>
   <div class="war">
     <div class="field">
+      <!-- 兵種相剋表：放在盤面左側的空白區，盤面維持置中 -->
+      <div class="codex" id="codex"></div>
       <div class="side">
         <div class="castle E" id="castleE" onclick="clickCastle('E')">
           <div>🏰 敵方城堡</div><div class="hpn" id="ehp">15</div>
@@ -122,10 +124,10 @@
 </div></div>
 
 <!-- 資料層（先載入）：改卡片／文明只需要動 data/ 底下的檔案 -->
-<script defer src="data/rules.js?v=25"></script>
-<script defer src="data/cards.js?v=25"></script>
-<script defer src="data/civs.js?v=25"></script>
+<script defer src="data/rules.js?v=27"></script>
+<script defer src="data/cards.js?v=27"></script>
+<script defer src="data/civs.js?v=27"></script>
 <!-- 邏輯層 -->
-<script defer src="game.js?v=25"></script>
+<script defer src="game.js?v=27"></script>
 </body>
 </html>
