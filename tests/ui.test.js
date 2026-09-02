@@ -338,6 +338,129 @@ if (!L.hasJsdom()) {
     eq(g.run('G.units[0].anim'), null, '播放後應清掉，避免重複觸發');
   });
 
+  suite('介面 · 攻擊特效');
+
+  /* jsdom 不做版面計算，getBoundingClientRect 一律回傳 0。
+     這裡改寫「原型」而不是個別元素 —— render() 每次都會重建盤面，
+     patch 個別元素的話重建後就失效了（正是這個專案踩過好幾次的坑）。 */
+  function fakeLayout(g) {
+    g.run(`
+      Element.prototype.getBoundingClientRect = function () {
+        const lane = this.parentElement;
+        if (lane && lane.classList.contains('lane')) {
+          const l = [...board.children].indexOf(lane);
+          const c = [...lane.children].indexOf(this) - 1;   // 第 0 個是路線標籤
+          if (l >= 0 && c >= 0) {
+            return { left: 100 + l * 90, top: 500 - c * 72, width: 84, height: 66,
+                     right: 184 + l * 90, bottom: 566 - c * 72 };
+          }
+        }
+        return { left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0 };
+      };
+    `);
+  }
+
+  async function battle() {
+    const g = await boot();
+    g.run("go('deckbuild'); autoFill(); startBattle(); finishMulligan();");
+    g.run(`G.units=[]; G.selUnit=null; G.P.front=[COLS,COLS,COLS]; G.E.front=[COLS,COLS,COLS];
+           G.P.gold=99; G.E.gold=99; render();`);
+    return g;
+  }
+
+  test('遠程攻擊會射出箭矢，且角度朝向目標', async () => {
+    const g = await battle();
+    g.run(`G.P.hand=['archer']; playCard('P',0,1,1); G.units[0].sick=false;
+           G.E.hand=['militia']; playCard('E',0,1,3);
+           render();`);
+    fakeLayout(g);
+    g.run('attack(G.units[0], G.units[1]); render();');
+    const arrow = g.d.querySelector('#fx .fx-arrow');
+    ok(arrow, '應產生箭矢');
+    // 射手在 col1、目標在 col3，同一路 → 應該往上飛（dy 為負），水平不位移
+    eq(arrow.style.getPropertyValue('--dx'), '0px');
+    ok(parseFloat(arrow.style.getPropertyValue('--dy')) < 0, '應朝上飛');
+  });
+
+  test('近戰攻擊播放刀光，不是箭矢', async () => {
+    const g = await battle();
+    g.run(`G.P.hand=['sword']; playCard('P',0,1,1); G.units[0].sick=false;
+           G.E.hand=['pike']; playCard('E',0,1,2);
+           render();`);
+    fakeLayout(g);
+    g.run('attack(G.units[0], G.units[1]); render();');
+    ok(g.d.querySelector('#fx .fx-slash'), '應有刀光');
+    eq(g.d.querySelectorAll('#fx .fx-arrow').length, 0, '近戰不該有箭矢');
+  });
+
+  test('受傷會跳出傷害數字', async () => {
+    const g = await battle();
+    g.run(`G.P.hand=['archer']; playCard('P',0,1,1); G.units[0].sick=false;
+           G.E.hand=['pike']; playCard('E',0,1,3);
+           render();`);
+    fakeLayout(g);
+    const before = g.run('G.units[1].hp');
+    g.run('attack(G.units[0], G.units[1]); render();');
+    const dmg = g.d.querySelector('#fx .fx-dmg');
+    ok(dmg, '應跳出傷害數字');
+    const shown = Math.abs(parseInt(dmg.textContent, 10));
+    eq(shown, before - g.run('G.units[1].hp'), '數字要與實際扣血一致');
+  });
+
+  test('陣亡會留下淡出的殘影，且晚於傷害數字', async () => {
+    const g = await battle();
+    g.run(`G.P.hand=['sword']; playCard('P',0,1,1); G.units[0].sick=false;
+           G.E.hand=['militia']; playCard('E',0,1,2);
+           render();`);
+    fakeLayout(g);
+    g.run('attack(G.units[0], G.units[1]); cleanup(); render();');
+    const die = g.d.querySelector('#fx .fx-die');
+    const dmg = g.d.querySelector('#fx .fx-dmg');
+    ok(die, '陣亡應有殘影');
+    ok(parseFloat(die.style.animationDelay) > parseFloat(dmg.style.animationDelay),
+      '殘影要晚於傷害數字出現');
+  });
+
+  test('聖盾擋下時顯示盾牌而不是數字', async () => {
+    const g = await battle();
+    g.run(`G.P.hand=['sword']; playCard('P',0,1,1); G.units[0].sick=false;
+           G.E.hand=['templar']; playCard('E',0,1,2); G.units[1].shield=true;
+           render();`);
+    fakeLayout(g);
+    g.run('attack(G.units[0], G.units[1]); render();');
+    const texts = [...g.d.querySelectorAll('#fx .fx-dmg')].map(e => e.textContent);
+    ok(texts.includes('🛡'), '應顯示聖盾，實際：' + texts.join(','));
+  });
+
+  test('攻擊城堡也有特效與傷害數字', async () => {
+    const g = await battle();
+    g.run(`G.P.hand=['sword']; playCard('P',0,1,COLS-1); G.units[0].sick=false; render();`);
+    fakeLayout(g);
+    const before = g.run('G.E.hp');
+    g.run('hitCastle(G.units[0]); render();');
+    const dmg = [...g.d.querySelectorAll('#fx .fx-dmg')].map(e => e.textContent);
+    ok(g.d.querySelector('#fx .fx-slash'), '應有攻擊動作');
+    eq(dmg, ['-' + (before - g.run('G.E.hp'))], '傷害數字要與城堡實際扣血一致');
+  });
+
+  test('特效層不會攔截點擊', async () => {
+    const g = await boot();
+    eq(g.w.getComputedStyle(g.d.getElementById('fx')).pointerEvents, 'none');
+  });
+
+  test('無介面環境不會因為特效而出錯', async () => {
+    // headless（模擬器）沒有真的版面，playFx 必須安靜略過
+    const api = require('../tools/loadgame').headless();
+    api.G = {
+      turn: 1, side: 'P', over: false,
+      P: api.mkSide('brit', api.aiDeck('brit'), true),
+      E: api.mkSide('france', api.aiDeck('france'), true),
+      units: [], sel: null, mode: null, selUnit: null, log: [],
+    };
+    api.render();
+    ok(true, 'render 不該拋例外');
+  });
+
   suite('介面 · 經濟');
 
   test('卡包會實際增加收藏並扣除寶石', async () => {

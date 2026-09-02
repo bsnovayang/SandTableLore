@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>沙盤傳說 — 中世紀卡牌戰棋</title>
-<link rel="stylesheet" href="style.css?v=22">
+<link rel="stylesheet" href="style.css?v=23">
 </head>
 <body>
 <div id="fatal"></div>
@@ -109,6 +109,9 @@
   <div style="margin-top:18px"><button class="primary" id="mullOk" onclick="finishMulligan()">開始對戰</button></div>
 </div></div>
 
+<!-- 特效層：蓋在畫面上、不吃點擊 -->
+<div id="fx"></div>
+
 <div class="banner" id="banner"><div class="box">
   <div class="t" id="bTitle"></div>
   <div id="bText" style="color:var(--dim);max-width:560px;line-height:1.7;text-align:left"></div>
@@ -119,10 +122,10 @@
 </div></div>
 
 <!-- 資料層（先載入）：改卡片／文明只需要動 data/ 底下的檔案 -->
-<script defer src="data/rules.js?v=22"></script>
-<script defer src="data/cards.js?v=22"></script>
-<script defer src="data/civs.js?v=22"></script>
+<script defer src="data/rules.js?v=23"></script>
+<script defer src="data/cards.js?v=23"></script>
+<script defer src="data/civs.js?v=23"></script>
 <!-- 邏輯層 -->
-<script defer src="game.js?v=22"></script>
+<script defer src="game.js?v=23"></script>
 </body>
 </html>

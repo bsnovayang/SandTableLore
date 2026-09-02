@@ -97,7 +97,7 @@ function boot(){
   // 4) 檢查程式碼依賴的「id 當全域變數」是否真的成立
   const need=['gemHud','civList','pool','deckList','deckCount','startBtn','packResult','turnInfo',
     'enemyInfo','hint','board','log','castleP','castleE','php','ehp','goldTxt','deckTxt',
-    'villGold','villLand','heroBtn','endBtn','hand','banner','bTitle','bText','buffTxt','undoBtn','bOk','bCancel','mullBanner','mullCards','mullOk'];
+    'villGold','villLand','heroBtn','endBtn','hand','banner','bTitle','bText','buffTxt','undoBtn','bOk','bCancel','mullBanner','mullCards','mullOk','fx'];
   const bad=need.filter(id=>{
     const el=document.getElementById(id);
     if(!el) return true;                 // HTML 裡根本沒這個元素
@@ -535,9 +535,11 @@ function enemyAhead(u){
   return G.units.some(o=>o.hp>0&&o.owner!==u.owner&&o.lane===u.lane&&(o.col-u.col)*d>0);
 }
 function damage(t,amt,src,srcRng){
-  if(t.shield){ t.shield=false; say(`　${CARDS[t.card].n} 的 <b>聖盾</b> 擋下了傷害`); flash(t); return 0; }
+  if(t.shield){ t.shield=false; say(`　${CARDS[t.card].n} 的 <b>聖盾</b> 擋下了傷害`); fxDamage(t,'🛡'); return 0; }
   const dmg=Math.max(1,amt-effDef(t));
-  t.hp-=dmg; flash(t);
+  t.hp-=dmg;
+  fxDamage(t,'-'+dmg);
+  if(t.hp<=0) fxDie(t);
   say(`　${CARDS[t.card].n} 受到 <b>${dmg}</b> 傷害（${Math.max(0,t.hp)}/${t.max}）`);
   return dmg;
 }
@@ -588,6 +590,7 @@ function atkPower(u,t){
 }
 /* 近戰（射程 1）攻擊會被反擊；遠程單位攻擊不受反擊 */
 function attack(u,t){
+  fxImpact=fxAttack(u,t);
   const cb=counterBonus(u,t);
   say(`${CARDS[u.card].n} 攻擊 ${CARDS[t.card].n}`
       + (cb>0?`　<b>剋制 +${cb}</b>（${KIND_NAME[u.kind]} 剋 ${KIND_NAME[t.kind]}）`:''));
@@ -596,7 +599,7 @@ function attack(u,t){
   const back = (u.rng===1 && !hitRun) ? atkPower(t,u) : 0;  // 反擊先算好，等同同時結算
   damage(t,power,u);
   if(hitRun&&u.rng===1) say(`　<b>打帶跑</b>：${CARDS[u.card].n} 不受反擊`);
-  if(back>0){ say(`　<b>反擊！</b>`); damage(u,back,t); }
+  if(back>0){ say(`　<b>反擊！</b>`); fxImpact+=90; damage(u,back,t); }
   u.attacked=true;
 }
 function hitCastle(u){
@@ -604,6 +607,7 @@ function hitCastle(u){
   const foe=other(u.owner);
   G[foe].hp-=a;
   u.attacked=true;
+  fxCastle(u,foe,a);
   say(`<b>${CARDS[u.card].n} 直擊${nm(foe)}城堡 -${a}！</b>`);
   const el=foe==='P'?castleP:castleE; el.classList.add('hit'); setTimeout(()=>el.classList.remove('hit'),350);
 }
@@ -734,6 +738,85 @@ function checkEnd(){
     pendingAfterBanner=()=>go('menu');
   }
 }
+/* =========================================================
+   攻擊特效
+   ---------------------------------------------------------
+   戰鬥邏輯是同步的（AI 與測試都依賴這點），所以動畫不能卡在中間。
+   做法是：邏輯執行時只把「要播什麼」排進佇列，render() 之後才一次播放。
+   這同時修掉一個舊問題 —— 先前的 flash() 在 render() 重建盤面後就失效了。
+   ========================================================= */
+let fxQueue=[], fxTime=0, fxImpact=0;
+const FX_STEP=140;        // 同一批多次攻擊之間的間隔
+const FX_FLIGHT=170;      // 箭矢飛行時間
+const FX_SLASH=70;        // 刀光命中時間
+
+function fxAttack(u,t){
+  const ranged = u.rng>=2;
+  fxQueue.push({k:ranged?'arrow':'slash', from:{lane:u.lane,col:u.col},
+                to:{lane:t.lane,col:t.col}, t:fxTime});
+  const impact = fxTime + (ranged?FX_FLIGHT:FX_SLASH);
+  fxTime += FX_STEP;
+  return impact;
+}
+function fxDamage(t,text){ fxQueue.push({k:'dmg', lane:t.lane, col:t.col, text, t:fxImpact}); }
+function fxCastle(u,foe,dmg){
+  const ranged=u.rng>=2;
+  fxQueue.push({k:ranged?'arrow':'slash', from:{lane:u.lane,col:u.col}, castle:foe, t:fxTime});
+  fxQueue.push({k:'dmg', castle:foe, text:'-'+dmg, t:fxTime+(ranged?FX_FLIGHT:FX_SLASH)});
+  fxTime+=FX_STEP;
+}
+function fxDie(t){ fxQueue.push({k:'die', lane:t.lane, col:t.col, card:t.card, owner:t.owner, t:fxImpact+120}); }
+
+/* 取得棋盤格子在畫面上的位置；取不到（例如無介面測試）就回傳 null */
+function cellRect(lane,col){
+  if(!board||!board.children||!board.children[lane]) return null;
+  const cell=board.children[lane].children[col+1];   // 第 0 個是路線標籤
+  if(!cell||typeof cell.getBoundingClientRect!=='function') return null;
+  const r=cell.getBoundingClientRect();
+  return {x:r.left+r.width/2, y:r.top+r.height/2};
+}
+function playFx(){
+  const q=fxQueue; fxQueue=[]; fxTime=0;
+  if(!q.length) return;
+  const layer=document.getElementById('fx');
+  if(!layer||typeof layer.appendChild!=='function'||!cellRect(0,0)) return;
+  const castleRect=side=>{
+    const el=document.getElementById(side==='P'?'castleP':'castleE');
+    if(!el||typeof el.getBoundingClientRect!=='function') return null;
+    const r=el.getBoundingClientRect();
+    return {x:r.left+r.width/2, y:r.top+r.height/2};
+  };
+  q.forEach(e=>{
+    const isShot = e.k==='arrow'||e.k==='slash';
+    const to = e.castle ? castleRect(e.castle)
+             : (isShot ? cellRect(e.to.lane,e.to.col) : cellRect(e.lane,e.col));
+    if(!to) return;
+    const el=document.createElement('div');
+    el.style.animationDelay=e.t+'ms';
+    if(e.k==='arrow'){
+      const from=cellRect(e.from.lane,e.from.col); if(!from) return;
+      const dx=to.x-from.x, dy=to.y-from.y;
+      el.className='fx-arrow';
+      el.style.left=from.x+'px'; el.style.top=from.y+'px';
+      el.style.setProperty('--dx',dx+'px');
+      el.style.setProperty('--dy',dy+'px');
+      el.style.setProperty('--rot',(Math.atan2(dy,dx)*180/Math.PI)+'deg');
+    }else if(e.k==='slash'){
+      el.className='fx-slash';
+      el.style.left=(to.x-32)+'px'; el.style.top=(to.y-32)+'px';
+    }else if(e.k==='dmg'){
+      el.className='fx-dmg'; el.textContent=e.text;
+      el.style.left=to.x+'px'; el.style.top=(to.y-10)+'px';
+    }else if(e.k==='die'){
+      el.className='fx-die unit '+e.owner;
+      el.textContent=CARDS[e.card].n;
+      el.style.left=(to.x-38)+'px'; el.style.top=(to.y-29)+'px';
+    }
+    layer.appendChild(el);
+    el.addEventListener('animationend',()=>el.remove());
+  });
+}
+
 function flash(u){
   const el=document.querySelector('[data-u="'+u.id+'"]');
   if(el){ el.classList.add('hit'); setTimeout(()=>el.classList.remove('hit'),350); }
@@ -974,6 +1057,8 @@ function render(){
     }
     board.appendChild(row);
   }
+  playFx();
+
   // 手牌
   hand.innerHTML='';
   S.hand.forEach((id,i)=>{

@@ -168,3 +168,50 @@ h1,h2,h3{font-weight:700;margin:0}
   from{transform:translate(var(--dx,0),var(--dy,0))}
   to{transform:translate(0,0)}
 }
+
+/* =========================================================
+   攻擊特效層
+   ---------------------------------------------------------
+   position:fixed + getBoundingClientRect 的畫面座標，
+   不受棋盤捲動或版面結構影響。pointer-events:none 才不會擋住點擊。
+   ========================================================= */
+#fx{position:fixed;inset:0;pointer-events:none;z-index:40;overflow:hidden}
+#fx > *{position:absolute;opacity:0}
+
+/* 箭矢：從射手飛向目標，角度依實際方向旋轉 */
+.fx-arrow{width:22px;height:3px;margin:-1px 0 0 -11px;border-radius:2px;
+  background:linear-gradient(90deg,rgba(240,214,143,0),#f0d68f 40%,#fff8e0);
+  box-shadow:0 0 6px rgba(240,214,143,.9);
+  animation:fxFly .17s linear forwards}
+@keyframes fxFly{
+  from{opacity:1;transform:translate(0,0) rotate(var(--rot,0deg))}
+  to  {opacity:1;transform:translate(var(--dx,0),var(--dy,0)) rotate(var(--rot,0deg))}
+}
+
+/* 刀光：右上往左下斜砍 */
+.fx-slash{width:64px;height:64px;animation:fxSlash .24s ease-out forwards}
+.fx-slash::before{content:'';position:absolute;inset:0;border-radius:8px;
+  background:linear-gradient(225deg,transparent 40%,rgba(255,255,255,.95) 47%,
+    #ffe6b8 51%,transparent 60%)}
+@keyframes fxSlash{
+  0%  {opacity:0;transform:translate(12px,-12px) scale(.85)}
+  25% {opacity:1}
+  100%{opacity:0;transform:translate(-12px,12px) scale(1.15)}
+}
+
+/* 傷害數字：往上飄並淡出 */
+.fx-dmg{font-weight:700;font-size:16px;color:#ff8a72;margin-left:-10px;
+  text-shadow:0 1px 3px #000,0 0 8px rgba(0,0,0,.8);
+  animation:fxPop .75s ease-out forwards}
+@keyframes fxPop{
+  0%  {opacity:0;transform:translateY(6px) scale(.7)}
+  18% {opacity:1;transform:translateY(-2px) scale(1.2)}
+  100%{opacity:0;transform:translateY(-30px) scale(1)}
+}
+
+/* 陣亡：留一個殘影淡出，讓「血量歸零後才消失」看得出來 */
+.fx-die{width:76px;height:58px;animation:fxDie .42s ease-in forwards}
+@keyframes fxDie{
+  0%  {opacity:.95;transform:scale(1)}
+  100%{opacity:0;transform:scale(.55) rotate(10deg)}
+}
