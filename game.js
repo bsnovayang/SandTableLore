@@ -1,0 +1,940 @@
+"use strict";
+/* =========================================================
+   錯誤可視化：任何例外都直接顯示在畫面上方，避免「點了沒反應」
+   ========================================================= */
+function showFatal(msg){
+  const el=document.getElementById('fatal');
+  if(!el){ console.error(msg); return; }
+  if(!el.dataset.init){
+    el.dataset.init='1';
+    const x=document.createElement('span');
+    x.className='x'; x.textContent='✕ 關閉';
+    x.onclick=()=>el.classList.remove('on');
+    el.appendChild(x);
+    el.appendChild(document.createElement('span'));
+  }
+  el.classList.add('on');
+  const body=el.lastChild;
+  body.textContent += String.fromCharCode(10) + '⚠ ' + msg;
+  console.error(msg);
+}
+/* 追蹤：把執行進度顯示在右下角探針框，讓「靜默失敗」看得見 */
+let _tr=[];
+function trace(step){
+  _tr.push(step);
+  const p=document.getElementById('probe');
+  if(p) p.textContent='▶ '+_tr.join(' → ');
+}
+/* =========================================================
+   開機自檢 + 點擊探針
+   ========================================================= */
+/* =========================================================
+   資料驗證：新增卡片／文明時，打錯字會立刻在畫面上報出來
+   ========================================================= */
+function validateData(){
+  const err=[];
+  const kinds=Object.keys(KIND_NAME);
+  const civIds=Object.keys(CIVS);
+  Object.keys(CARDS).forEach(id=>{
+    const c=CARDS[id], at=`卡牌 ${id}`;
+    if(!c.n) err.push(`${at}：缺少名稱 n`);
+    if(typeof c.cost!=='number') err.push(`${at}：缺少費用 cost`);
+    if(!c.civ) err.push(`${at}：缺少 civ`);
+    else if(c.civ!=='N'&&!civIds.includes(c.civ)) err.push(`${at}：civ '${c.civ}' 不存在於 CIVS`);
+    if(c.type==='spell'){
+      const ok=[undefined,'ally','enemy','allyCav','allyBuilding'];
+      if(!ok.includes(c.target)) err.push(`${at}：法術 target '${c.target}' 無效`);
+    }else{
+      if(!c.kind) err.push(`${at}：單位缺少兵種 kind`);
+      else if(!kinds.includes(c.kind)) err.push(`${at}：kind '${c.kind}' 無效（可用：${kinds.join('/')}）`);
+      ['atk','hp','rng','spd'].forEach(k=>{ if(typeof c[k]!=='number') err.push(`${at}：缺少數值 ${k}`); });
+      if((c.kw||[]).includes('siege')&&!c.siege) err.push(`${at}：有 siege 關鍵字卻沒有 siege 數值`);
+      if((c.kw||[]).includes('thorns')&&!c.thorns) err.push(`${at}：有 thorns 關鍵字卻沒有 thorns 數值`);
+    }
+  });
+  NEUTRAL.concat(STARTER_N).forEach(id=>{ if(!CARDS[id]) err.push(`清單引用了不存在的卡牌：${id}`); });
+  civIds.forEach(cv=>{
+    const c=CIVS[cv];
+    ['n','hero','icon','feat','sk','skT'].forEach(k=>{ if(!c[k]) err.push(`文明 ${cv}：缺少 ${k}`); });
+    if(typeof c.skCost!=='number') err.push(`文明 ${cv}：缺少 skCost`);
+    const own=Object.keys(CARDS).filter(id=>CARDS[id].civ===cv);
+    if(!own.length) err.push(`文明 ${cv}：沒有任何專屬卡`);
+    const st=STARTER_CIV[cv];
+    if(!st) err.push(`文明 ${cv}：STARTER_CIV 沒有對應條目`);
+    else st.forEach(id=>{
+      if(!CARDS[id]) err.push(`文明 ${cv} 的起始卡 ${id} 不存在`);
+      else if(CARDS[id].civ!==cv) err.push(`文明 ${cv} 的起始卡 ${id} 其實屬於 ${CARDS[id].civ}`);
+    });
+    // 起始收藏必須剛好能組出一副合法牌組
+    const pool=STARTER_N.length*COPY_MAX + (st?st.length*COPY_MAX:0);
+    if(pool<DECK_SIZE) err.push(`文明 ${cv}：起始收藏只有 ${pool} 張，湊不滿 ${DECK_SIZE} 張牌組`);
+  });
+  return err;
+}
+
+function boot(){
+  // 1) CSS 是否真的套用了？（body 應為 overflow:hidden）
+  const cssOK = getComputedStyle(document.body).overflow === 'hidden';
+  // 2) JS 走到這裡就代表載入成功，移除警告條
+  const bw=document.getElementById('boot'); if(bw) bw.remove();
+  const dataErr=validateData();
+  if(dataErr.length) showFatal('資料檢查發現 '+dataErr.length+' 個問題：'+String.fromCharCode(10)+dataErr.join(String.fromCharCode(10)));
+  if(!cssOK) showFatal('style.css 沒有套用（可能是路徑錯誤或 404），版面與點擊行為都會不正常。');
+
+  // 3) 檢查程式碼依賴的「id 當全域變數」是否真的成立
+  const need=['gemHud','civList','pool','deckList','deckCount','startBtn','packResult','turnInfo',
+    'enemyInfo','hint','board','log','castleP','castleE','php','ehp','goldTxt','deckTxt',
+    'villGold','villLand','heroBtn','endBtn','hand','banner','bTitle','bText','buffTxt'];
+  const bad=need.filter(id=>{
+    const el=document.getElementById(id);
+    if(!el) return true;                 // HTML 裡根本沒這個元素
+    return window[id]!==el;              // 有元素，但 window.<id> 不是它（被遮蔽）
+  });
+  if(bad.length) showFatal('以下 id 無法用全域變數存取，程式會在用到它們時中斷：'+bad.join(', '));
+
+  // 4) 點擊探針：用 elementFromPoint 找出滑鼠位置最上層的元素
+  const probe=document.getElementById('probe');
+  if(probe){
+    if(!location.search.includes('debug')) probe.classList.add('hide');  // 需要除錯時網址加 ?debug
+    probe.onclick=()=>probe.classList.add('hide');
+    document.addEventListener('mousedown',e=>{
+      const top=document.elementFromPoint(e.clientX,e.clientY);
+      const btn=e.target.closest && e.target.closest('button');
+      const desc=n=>!n?'(無)':n.tagName.toLowerCase()
+        +(n.id?'#'+n.id:'')+(n.className&&typeof n.className==='string'?'.'+n.className.trim().split(/\s+/).join('.'):'')
+        +(n.tagName==='BUTTON'?' 「'+n.textContent.trim().slice(0,8)+'」':'');
+      const blocked = btn && top!==btn && !btn.contains(top);
+      probe.textContent='🐞 最上層：'+desc(top)
+        + (btn? '  ｜ 目標按鈕：'+desc(btn)+(btn.disabled?' [disabled 停用中]':'') : '')
+        + (blocked? '  ⚠ 按鈕被上面那個元素蓋住了！' : '');
+      probe.style.borderColor = blocked||(btn&&btn.disabled) ? '#c4553f' : '#3d5a72';
+    },true);
+  }
+}
+if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+else boot();
+
+window.addEventListener('error',e=>{
+  showFatal((e.message||'錯誤')+'  @ '+String(e.filename||'').split('/').pop()+':'+e.lineno);
+});
+window.addEventListener('unhandledrejection',e=>showFatal('未處理的 Promise：'+e.reason));
+
+/* localStorage 在 file:// 或無痕模式可能直接丟出 SecurityError，包起來保護 */
+let storageWarned=false;
+const store={
+  get(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } },
+  set(k,v){ try{ localStorage.setItem(k,v); }catch(e){
+    if(!storageWarned){ storageWarned=true;
+      showFatal('存檔無法寫入（可能是以 file:// 開啟或無痕模式）。遊戲仍可正常進行，但進度不會保留。'); }
+  }}
+};
+
+/* =========================================================
+   存檔
+   ========================================================= */
+const SAVE=SAVE_KEY;
+let save = load();
+function load(){
+  try{ const s=JSON.parse(store.get(SAVE)); if(s&&s.collection) return s; }catch(e){}
+  // 起始只給「基本中立 ×2 + 每個文明兩張招牌卡 ×2」= 剛好 20 張，其餘靠卡包解鎖
+  const col={};
+  STARTER_N.forEach(c=>col[c]=2);
+  Object.values(STARTER_CIV).forEach(list=>list.forEach(c=>col[c]=2));
+  return {gems:120, collection:col, civ:'brit', decks:{}};
+}
+function persist(){ store.set(SAVE,JSON.stringify(save)); paintGems(); }
+function paintGems(){ ['gemHud','gemDeck','gemShop'].forEach(id=>{
+  const el=document.getElementById(id); if(el) el.textContent='💎 '+save.gems; }); }
+paintGems();
+
+/* =========================================================
+   畫面切換
+   ========================================================= */
+function go(id){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  gemHud.style.display = id==='menu' ? 'block':'none';
+  if(id==='deckbuild') openDeckbuild();
+}
+function showRules(){
+  bTitle.textContent='規則說明';
+  bText.innerHTML=`<b>盤面</b>：3 路 × 6 格，走到底就直接攻擊城堡（15 血）。<br>
+  <b>部署</b>：單位只能放在自己「領土」內的空格。<b>當回合剛部署的單位不能行動</b>（💤），下回合才能動。<br>
+  <b>村民抉擇</b>（每回合強制二選一）：🪙 金幣上限 +1（最高 10）／🚩 指定一路領土 +1。<br>
+  <b>操作</b>：點自己的單位選取 → 點<span style="color:#78dc96">綠框</span>前進、點<span style="color:#f0d68f">黃框 ⇄</span> 換線或後退、點<span style="color:#ff6a4d">紅框敵人</span>或敵方城堡攻擊。<br>
+  <b>換線／後退</b>：任何單位都能橫移到鄰路或往後撤，但<b>本回合無法再攻擊</b>；蒙古的「機動」單位不受此限。<br>
+  <b>射程</b>：以格數計算（前後左右各算 1 格），<b>可以打鄰路的敵人</b>。射程 2 就是 2 格內的任何敵人。<br>
+  <b>行動額度</b>：每個單位每回合可<b>移動一次 + 攻擊一次</b>（順序不限）。行動完畢會變灰並顯示 ✓。<br>
+  <b>反擊</b>：近戰（射程 1）攻擊時雙方同時扣血；<b>遠程單位攻擊不會被反擊</b>。<br>
+  <b>兵種相剋（全域規則，+2 傷害）</b>：<br>
+  　🏹遠程 剋 🗡步兵 剋 🐎騎兵 剋 🏹遠程<br>
+  　🗡一般單位 剋 🔨攻城 剋 🏰建築 剋 🗡一般單位<br>
+  <b>攻城</b>：攻城槌攻擊力只有 2，但對<b>建築與城堡</b>有巨額額外傷害；反過來被一般單位剋制。<br>
+  <b>打帶跑</b>：有「機動」的蒙古單位在移動之後攻擊，同樣不受反擊。<br>
+  <b>傷害</b> = 攻擊 − 防禦（最低 1）。手牌上限 5，牌庫抽完每次抽牌城堡 -1。`;
+  banner.classList.add('on');
+}
+function closeBanner(){ banner.classList.remove('on'); if(pendingAfterBanner){const f=pendingAfterBanner;pendingAfterBanner=null;f();} }
+let pendingAfterBanner=null;
+
+/* =========================================================
+   組牌
+   ========================================================= */
+let deck = [];
+function renderDeckbuild(){
+  civList.innerHTML='';
+  Object.keys(CIVS).forEach(k=>{
+    const c=CIVS[k];
+    const d=document.createElement('div');
+    d.className='civ'+(save.civ===k?' on':'');
+    d.innerHTML=`<div class="t">${c.icon} ${c.n}</div>
+      <div class="d">英雄：${c.hero}<br>${c.feat}<br><span style="color:var(--gold2)">【${c.sk}】</span>${c.skT}（${c.skCost} 金）</div>`;
+    d.onclick=()=>{ save.civ=k; deck=(save.decks[k]||[]).slice(); persist(); renderDeckbuild(); };
+    d.title=c.feat;
+    civList.appendChild(d);
+  });
+  deck = deck.filter(id=>CARDS[id] && (CARDS[id].civ==='N'||CARDS[id].civ===save.civ));
+
+  pool.innerHTML='';
+  Object.keys(CARDS).filter(id=>CARDS[id].civ==='N'||CARDS[id].civ===save.civ).forEach(id=>{
+    const own=save.collection[id]||0;
+    const used=deck.filter(x=>x===id).length;
+    const el=cardEl(id);
+    el.insertAdjacentHTML('beforeend',
+      `<div class="own">已放 <b>${used}</b>/${Math.min(COPY_MAX,own)}　擁有 ${own}</div>`);
+    if(own===0||used>=Math.min(COPY_MAX,own)) el.classList.add('dim');
+    el.onclick=()=>{ if(deck.length>=DECK_SIZE) return; if(used<Math.min(COPY_MAX,own)){deck.push(id);renderDeckbuild();} };
+    pool.appendChild(el);
+  });
+  const counts={}; deck.forEach(id=>counts[id]=(counts[id]||0)+1);
+  deckList.innerHTML='';
+  Object.keys(counts).sort((a,b)=>CARDS[a].cost-CARDS[b].cost).forEach(id=>{
+    const r=document.createElement('div'); r.className='drow';
+    r.innerHTML=`<span><span class="c">${CARDS[id].cost}</span> ${CARDS[id].n}</span><span>×${counts[id]}</span>`;
+    r.onclick=()=>{ deck.splice(deck.indexOf(id),1); renderDeckbuild(); };
+    deckList.appendChild(r);
+  });
+  deckCount.textContent=deck.length+' / '+DECK_SIZE;
+  startBtn.disabled = deck.length!==DECK_SIZE;
+  save.decks[save.civ]=deck.slice(); persist();
+}
+function autoFill(){
+  const pool2=Object.keys(CARDS).filter(id=>CARDS[id].civ==='N'||CARDS[id].civ===save.civ);
+  let guard=200;
+  while(deck.length<DECK_SIZE && guard-->0){
+    let added=false;
+    for(const id of pool2){
+      if(deck.length>=DECK_SIZE) break;
+      const own=Math.min(COPY_MAX,save.collection[id]||0);
+      if(deck.filter(x=>x===id).length<own){ deck.push(id); added=true; }
+    }
+    if(!added) break;
+  }
+  renderDeckbuild();
+}
+function openDeckbuild(){ deck=(save.decks[save.civ]||[]).slice(); renderDeckbuild(); }
+function clearDeck(){ deck=[]; renderDeckbuild(); }
+
+function cardEl(id,extraCls){
+  const c=CARDS[id];
+  const d=document.createElement('div');
+  d.className='card '+(c.type==='spell'?'spell':(c.kw&&c.kw.includes('building')?'bld':''))+' '+(extraCls||'');
+  let body=`<div class="cost">${c.cost}</div>`
+    + (c.kind?`<div class="kind">${KIND_NAME[c.kind]}</div>`:'')
+    + `<div class="nm">${c.n}</div>`;
+  if(c.t) body+=`<div class="tx">${c.t}</div>`;
+  if(c.type!=='spell'){
+    body+=`<div class="atk">${c.atk}</div><div class="hp">${c.hp}</div>`;
+    // 兵種已顯示在右上角，meta 只補充「額外」資訊：次要標籤與防禦力
+    const kindTag={I:'步兵',C:'騎兵',R:'遠程',S:'攻城',B:'建築'}[c.kind];
+    const extra=(c.tags||[]).filter(t=>t!==kindTag);
+    body+=`<div class="meta">${extra.join('·')}${c.def?(extra.length?' ':'')+'防'+c.def:''}</div>`;
+  }else body+=`<div class="meta">法術</div>`;
+  d.innerHTML=body;
+  return d;
+}
+
+/* =========================================================
+   商店
+   ========================================================= */
+function buyPack(){
+  if(save.gems<PACK_COST){ bTitle.textContent='寶石不足'; bText.textContent='需要 💎'+PACK_COST+'，去打幾場吧！'; banner.classList.add('on'); return; }
+  save.gems-=PACK_COST;
+  const all=Object.keys(CARDS);
+  packResult.innerHTML='';
+  for(let i=0;i<PACK_SIZE;i++){
+    const id=all[Math.floor(Math.random()*all.length)];
+    save.collection[id]=(save.collection[id]||0)+1;
+    packResult.appendChild(cardEl(id));
+  }
+  persist();
+}
+
+/* =========================================================
+   戰鬥狀態
+   ========================================================= */
+let G=null, uid=1;
+function mkSide(civ,deckIds,isAI){
+  const d=deckIds.slice(); shuffle(d);
+  return {civ,deck:d,hand:[],hp:CASTLE_HP,gold:3,max:3,front:[1,1,1],
+          heroUsed:false,villDone:false,ai:isAI,rangedBuff:0,fatigue:0,coin:0};
+}
+function shuffle(a){ for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];} }
+
+function aiDeck(civ){
+  // 文明專屬卡全放（同名 2 張），剩下的名額用便宜中立卡補滿 —— 這樣牌組才展現得出文明特色
+  const d=[];
+  const add=(id,n)=>{ for(let i=0;i<n && d.length<20 && d.filter(x=>x===id).length<2;i++) d.push(id); };
+  Object.keys(CARDS).filter(id=>CARDS[id].civ===civ).forEach(id=>add(id,2));
+  Object.keys(CARDS).filter(id=>CARDS[id].civ==='N'&&CARDS[id].type!=='spell')
+    .sort((a,b)=>CARDS[a].cost-CARDS[b].cost).forEach(id=>add(id,2));
+  Object.keys(CARDS).filter(id=>CARDS[id].civ==='N').forEach(id=>add(id,2));
+  return d.slice(0,20);
+}
+
+function startBattle(){
+  _tr=[];
+  try{ _startBattle(); }
+  catch(err){ const NL=String.fromCharCode(10);
+    showFatal('開始對戰失敗：'+err.message+NL+String(err.stack||'').split(NL)[1]); }
+}
+function _startBattle(){
+  if(deck.length!==DECK_SIZE){ showFatal('牌組必須剛好 '+DECK_SIZE+' 張（目前 '+deck.length+' 張）'); return; }
+  trace('進入');
+  const foes=Object.keys(CIVS).filter(c=>c!==save.civ);
+  const foe=foes[Math.floor(Math.random()*foes.length)];
+  G={ turn:1, side:'P', over:false,
+      P:mkSide(save.civ,deck,false),
+      E:mkSide(foe,aiDeck(foe),true),
+      units:[], sel:null, mode:null, log:[] };
+  trace('建立對局');
+  for(let i=0;i<3;i++) draw('P');
+  for(let i=0;i<4;i++) draw('E');
+  G.E.coin=2;   // 後手補償：第一回合多 2 金（實測 1 金不足以抵銷先手優勢）
+  trace('抽起手牌');
+  enemyInfo.textContent=CIVS[foe].icon+' '+CIVS[foe].n+'（'+CIVS[foe].hero+'）';
+  trace('寫入敵方資訊');
+  log.innerHTML='';
+  say(`<b>戰鬥開始</b>：對手為 ${CIVS[foe].n}`);
+  trace('清空戰報');
+  go('battle');
+  trace('切到戰場畫面');
+  beginTurn('P');
+  trace('完成 ✔');
+}
+function quitBattle(){ if(G) G.over=true; go('menu'); }
+
+function say(h){ const d=document.createElement('div'); d.innerHTML=h; log.prepend(d); }
+
+function draw(s){
+  const S=G[s];
+  if(!S.deck.length){                       // 疲勞遞增，確保對局一定會結束
+    S.fatigue=(S.fatigue||0)+1; S.hp-=S.fatigue;
+    say(`${nm(s)} 牌庫耗盡，<b>疲勞 -${S.fatigue}</b>`); return; }
+  const c=S.deck.pop();
+  if(S.hand.length>=HAND_MAX){ say(`${nm(s)} 手牌已滿，燒掉了 ${CARDS[c].n}`); return; }
+  S.hand.push(c);
+}
+function nm(s){ return s==='P'?'你':'敵方'; }
+
+/* ---------- 回合 ---------- */
+function beginTurn(s){
+  const S=G[s];
+  S.gold=S.max; S.heroUsed=false; S.villDone=false; S.rangedBuff=0;
+  if(S.coin>0){ S.gold+=S.coin; say(`${nm(s)} 使用後手補償金幣 +${S.coin}`); S.coin=0; }
+  G.selUnit=null;
+  G.units.filter(u=>u.owner===s).forEach(u=>{ u.sick=false; u.moved=false; u.attacked=false; u.buff=0; });
+  // 金幣已滿且三路都無法拓荒時，直接視為已完成抉擇，避免卡住
+  if(S.max>=GOLD_MAX && !canPush(s)) S.villDone=true;
+  draw(s);
+  G.side=s;
+  say(`—— 第 ${G.turn} 回合 · ${nm(s)}的回合 ——`);
+  render();
+  if(s==='E') setTimeout(()=>aiTurn('E'),600);
+}
+function villager(kind){
+  if(G.side!=='P'||G.P.villDone) return;
+  if(kind==='gold'){
+    if(G.P.max>=GOLD_MAX){ hint.textContent='金幣上限已達 10'; return; }
+    G.P.max++; G.P.gold++; G.P.villDone=true; say('你選擇 <b>開發</b>：金幣上限 → '+G.P.max);
+    render();
+  }else{
+    G.mode={type:'push'}; hint.textContent='選擇要拓荒的路線（點綠框格子）'; render();
+  }
+}
+function canPush(side){
+  const S=G[side],O=G[other(side)];
+  for(let l=0;l<LANES;l++) if(S.front[l]+O.front[l]<COLS) return true;
+  return false;
+}
+function doPush(side,lane){
+  const S=G[side], O=G[other(side)];
+  if(S.front[lane]+O.front[lane]>=COLS) return false;
+  S.front[lane]++; S.villDone=true;
+  say(`${nm(side)} <b>拓荒</b>：第 ${lane+1} 路領土推進到 ${S.front[lane]} 格`);
+  return true;
+}
+function other(s){ return s==='P'?'E':'P'; }
+
+function endTurn(){
+  if(G.side!=='P'||G.over) return;
+  if(!G.P.villDone){ hint.textContent='請先完成村民抉擇（開發 或 拓荒）'; return; }
+  G.sel=null; G.mode=null; G.selUnit=null;
+  endOfTurn('P');
+  if(G.over) return;
+  beginTurn('E');
+}
+
+/* ---------- 部署與出牌 ---------- */
+function ownsCell(side,lane,col){
+  const f=G[side].front[lane];
+  return side==='P' ? col<f : col>=COLS-f;
+}
+function unitAt(lane,col){ return G.units.find(u=>u.lane===lane&&u.col===col&&u.hp>0); }
+
+function playCard(side,idx,lane,col,targetUnit){
+  const S=G[side], id=S.hand[idx], c=CARDS[id];
+  if(c.cost>S.gold) return false;
+  if(c.type==='spell'){
+    if(!castSpell(side,id,targetUnit)) return false;
+  }else{
+    if(unitAt(lane,col)||!ownsCell(side,lane,col)) return false;
+    G.units.push({id:uid++,card:id,owner:side,lane,col,
+      hp:c.hp,max:c.hp,atk:c.atk,def:c.def||0,rng:c.rng,spd:c.spd,
+      kw:(c.kw||[]).slice(),tags:(c.tags||[]).slice(),
+      shield:(c.kw||[]).includes('shield'),thorns:c.thorns||0,siege:c.siege||0,kind:c.kind||null,
+      moved:false,attacked:false,sick:true,buff:0});   // 召喚失調：當回合不能行動
+    say(`${nm(side)} 部署 <b>${c.n}</b> 於第 ${lane+1} 路 ${col+1} 格`);
+  }
+  S.gold-=c.cost; S.hand.splice(idx,1);
+  return true;
+}
+function castSpell(side,id,t){
+  if(id==='levy'){ draw(side);draw(side); say(`${nm(side)} 使用 <b>徵召令</b>`); return true; }
+  if(id==='heal'){ if(!t||t.owner!==side) return false; t.hp=Math.min(t.max,t.hp+3); say(`${nm(side)} 治療 ${CARDS[t.card].n}`); flash(t); return true; }
+  if(id==='fireoil'){ if(!t||t.owner===side) return false; damage(t,4,null,9); say(`${nm(side)} <b>火油箭</b> 對 ${CARDS[t.card].n} 造成 4 傷害`); return true; }
+  if(id==='warhorn'){ if(!t||t.owner!==side) return false;
+    t.buff=(t.buff||0)+2; say(`${nm(side)} <b>戰號</b>：${CARDS[t.card].n} 本回合攻擊 +2`); return true; }
+  if(id==='arrowstorm'){ if(!t||t.owner===side) return false;
+    say(`${nm(side)} <b>箭雨</b>！`);
+    const hit=G.units.filter(o=>o.hp>0&&o.owner!==side&&o.lane===t.lane&&Math.abs(o.col-t.col)<=1);
+    hit.forEach(o=>damage(o,2,null,9));
+    return true; }
+  if(id==='bodkin'){ if(!t||t.owner===side) return false;
+    const dmg=effDef(t)>0?5:3;
+    say(`${nm(side)} <b>破甲箭</b> 對 ${CARDS[t.card].n} 造成 ${dmg} 傷害`);
+    damage(t,dmg,null,9); return true; }
+  if(id==='feign'){ if(!t||t.owner!==side) return false;
+    t.moved=false; say(`${nm(side)} <b>佯退</b>：${CARDS[t.card].n} 恢復移動額度`); return true; }
+  if(id==='blessing'){ if(!t||t.owner!==side) return false;
+    t.hp=t.max; t.shield=true;
+    say(`${nm(side)} <b>聖女祝福</b>：${CARDS[t.card].n} 回滿血並獲得聖盾`); flash(t); return true; }
+  if(id==='repair'){ if(!t||t.owner!==side||!t.kw.includes('building')) return false;
+    t.hp=Math.min(t.max,t.hp+6); say(`${nm(side)} <b>修繕</b>：${CARDS[t.card].n} 回復 6 血`); flash(t); return true; }
+  if(id==='raid'){ if(!t||t.owner!==side||!t.tags.includes('騎兵')) return false;
+    t.moved=false; t.attacked=false; t.sick=false;
+    say(`${nm(side)} <b>蒙古突襲</b>：${CARDS[t.card].n} 可以再行動一次`); return true; }
+  return false;
+}
+
+/* ---------- 戰鬥結算 ---------- */
+function dir(s){ return s==='P'?1:-1; }
+function distCastle(u){ return u.owner==='P' ? COLS-u.col : u.col+1; }
+function effDef(u){
+  let d=u.def;
+  if(u.kw.includes('formation')){
+    const mate=G.units.some(o=>o.hp>0&&o.owner===u.owner&&o.lane===u.lane&&Math.abs(o.col-u.col)===1&&o.kw.includes('formation'));
+    if(mate) d=Math.min(d*2,d+2);   // 陣型：防禦加倍，但最多 +2
+  }
+  return d;
+}
+function enemyAhead(u){
+  const d=dir(u.owner);
+  return G.units.some(o=>o.hp>0&&o.owner!==u.owner&&o.lane===u.lane&&(o.col-u.col)*d>0);
+}
+function damage(t,amt,src,srcRng){
+  if(t.shield){ t.shield=false; say(`　${CARDS[t.card].n} 的 <b>聖盾</b> 擋下了傷害`); flash(t); return 0; }
+  const dmg=Math.max(1,amt-effDef(t));
+  t.hp-=dmg; flash(t);
+  say(`　${CARDS[t.card].n} 受到 <b>${dmg}</b> 傷害（${Math.max(0,t.hp)}/${t.max}）`);
+  return dmg;
+}
+/* ---------- 兵種相剋（全域規則，不是卡片效果） ----------
+   兵種三角：🏹遠程 剋 🗡步兵 剋 🐎騎兵 剋 🏹遠程
+   攻城三角：🗡一般 剋 🔨攻城 剋 🏰建築 剋 🗡一般
+   量測顯示：綁在卡片上的關鍵字只有 2.9% 的攻擊會觸發，全域規則則是 18%。 */
+function counters(a,b){ return !!(COUNTER_TABLE[a]&&COUNTER_TABLE[a].includes(b)); }
+function counterBonus(u,t){
+  const a=u.kind,b=t.kind;
+  if(!a||!b||!counters(a,b)) return 0;
+  return (a==='S'&&b==='B') ? u.siege : COUNTER_BONUS;   // 攻城打建築用卡片自己的攻城值
+}
+/* 顯示用：不含「對特定目標的剋制加成」，但包含本回合的增益（例如齊射命令） */
+function buffAtk(u){
+  return u.atk + (u.buff||0)
+    + ((G[u.owner]&&G[u.owner].rangedBuff&&u.rng>=2) ? G[u.owner].rangedBuff : 0);
+}
+function atkPower(u,t){
+  let a=u.atk+(u.buff||0);
+  if(t) a+=counterBonus(u,t);
+  if(G[u.owner].rangedBuff&&u.rng>=2) a+=G[u.owner].rangedBuff;
+  return a;
+}
+/* 近戰（射程 1）攻擊會被反擊；遠程單位攻擊不受反擊 */
+function attack(u,t){
+  const cb=counterBonus(u,t);
+  say(`${CARDS[u.card].n} 攻擊 ${CARDS[t.card].n}`
+      + (cb>0?`　<b>剋制 +${cb}</b>（${KIND_NAME[u.kind]} 剋 ${KIND_NAME[t.kind]}）`:''));
+  const power=atkPower(u,t);
+  const hitRun = u.kw.includes('mobile') && u.moved;   // 打帶跑：機動單位移動後攻擊不受反擊
+  const back = (u.rng===1 && !hitRun) ? atkPower(t,u) : 0;  // 反擊先算好，等同同時結算
+  damage(t,power,u);
+  if(hitRun&&u.rng===1) say(`　<b>打帶跑</b>：${CARDS[u.card].n} 不受反擊`);
+  if(back>0){ say(`　<b>反擊！</b>`); damage(u,back,t); }
+  u.attacked=true;
+}
+function hitCastle(u){
+  const a=atkPower(u,null)+(u.kw.includes('siege')?u.siege:0);   // 攻城：對城堡額外傷害
+  const foe=other(u.owner);
+  G[foe].hp-=a;
+  u.attacked=true;
+  say(`<b>${CARDS[u.card].n} 直擊${nm(foe)}城堡 -${a}！</b>`);
+  const el=foe==='P'?castleP:castleE; el.classList.add('hit'); setTimeout(()=>el.classList.remove('hit'),350);
+}
+
+/* ---------- 行動額度：每回合可「移動一次 + 攻擊一次」 ---------- */
+function canMove(u){ return u.hp>0 && !u.sick && !u.moved && u.spd>0; }
+function canAttack(u){ return u.hp>0 && !u.sick && !u.attacked; }
+function canAct(u){ return canMove(u)||canAttack(u); }
+
+/* 可移動到的格子。每格附帶 off 旗標：抵達它是否用到了「非直線前進」的步伐（換線或後退）。
+   一般兵種只要換線或後退，本回合就無法攻擊；蒙古的「機動」單位不受此限。 */
+function reachable(u){
+  if(!canMove(u)) return [];
+  const d=dir(u.owner), seen=new Set([u.lane+','+u.col]), out=[];
+  let frontier=[{lane:u.lane,col:u.col,off:false}];
+  for(let step=0;step<u.spd;step++){
+    const next=[];
+    const add=(lane,col,off)=>{
+      if(lane<0||lane>=LANES||col<0||col>=COLS) return;
+      const k=lane+','+col;
+      if(seen.has(k)||unitAt(lane,col)) return;
+      seen.add(k); const c={lane,col,off}; out.push(c); next.push(c);
+    };
+    // 先展開「直行前進」，確保純直線走得到的格子不會被誤標成需要付代價
+    for(const p of frontier) add(p.lane,p.col+d,p.off);
+    // 再展開「換線」與「後退」
+    for(const p of frontier){
+      add(p.lane-1,p.col,true); add(p.lane+1,p.col,true);
+      add(p.lane,p.col-d,true);
+    }
+    frontier=next;
+  }
+  return out;
+}
+/* 這個單位「換線／後退」是否要付出『本回合不能攻擊』的代價 */
+function offAxisCost(u){ return !u.kw.includes('mobile'); }
+/* 攻擊距離：同一路每格算 1，**跨到鄰路要多花 1 點射程**（每差一路算 2）。
+   這樣射程 2 的弓兵打得到鄰路的敵人（正側面），但近戰（射程 1）依然只能打同一路 ——
+   三路各自為政的結構、以及「擋路」的意義才不會被全向攻擊瓦解。 */
+function gridDist(a,b){ return Math.abs(a.col-b.col) + 2*Math.abs(a.lane-b.lane); }
+/* 射程內的敵人：任何方向，含鄰路與後方。
+   射程以格數計算，前後左右各算 1 格。 */
+function attackTargets(u){
+  if(!canAttack(u)) return [];
+  return G.units.filter(o=>o.hp>0&&o.owner!==u.owner&&gridDist(u,o)<=u.rng);
+}
+/* 該路前方沒有敵人，且與城堡距離在射程內 → 可直擊城堡 */
+function canHitCastle(u){
+  return canAttack(u) && u.spd>0 && !enemyAhead(u) && distCastle(u)<=u.rng;
+}
+function moveUnit(u,lane,col){
+  const cell=reachable(u).find(c=>c.lane===lane&&c.col===col);
+  if(!cell) return false;
+  const from=`${u.lane+1}路${u.col+1}格`;
+  const back = (col-u.col)*dir(u.owner) < 0;
+  const off = cell.off;
+  u.lane=lane; u.col=col; u.moved=true;
+  say(`${CARDS[u.card].n} ${back?'後退':'移動'} ${from} → ${lane+1}路${col+1}格`);
+  if(off && offAxisCost(u)){
+    u.attacked=true;                      // 換線／後退後本回合放棄攻擊
+    say(`　<b>${back?'後退':'換線'}</b>：${CARDS[u.card].n} 本回合無法攻擊`);
+  }else if(off){
+    say(`　<b>機動</b>：${CARDS[u.card].n} ${back?'後退':'換線'}後仍可攻擊`);
+  }
+  return true;
+}
+
+/* ---------- NPC 用：自動走一個單位（規則與玩家完全相同） ---------- */
+function aiAct(u){
+  if(u.hp<=0||u.sick) return;
+  // 先看射程內有無敵人
+  let t=attackTargets(u).sort((a,b)=>a.hp-b.hp)[0];
+  if(t){ attack(u,t); return; }
+  if(canHitCastle(u)){ hitCastle(u); return; }
+  // 沒目標就往前推進，走完再嘗試攻擊
+  const cells=reachable(u);
+  if(cells.length){
+    const d=dir(u.owner);
+    const pen=c=>(c.off&&offAxisCost(u))?1:0;                   // 換線／後退要放棄攻擊，優先度降低
+    cells.sort((a,b)=>pen(a)-pen(b)
+      || ((b.col-u.col)*d)-((a.col-u.col)*d)                     // 盡量往前
+      || laneThreat(a.lane,u.owner)-laneThreat(b.lane,u.owner)); // 同樣遠就挑敵人少的路
+    moveUnit(u,cells[0].lane,cells[0].col);
+  }
+  t=attackTargets(u).sort((a,b)=>a.hp-b.hp)[0];
+  if(t){ attack(u,t); return; }
+  if(canHitCastle(u)) hitCastle(u);
+}
+function laneThreat(lane,side){
+  return G.units.filter(o=>o.hp>0&&o.lane===lane&&o.owner!==side).length;
+}
+/* NPC 的全軍行動：由最前線往後依序執行 */
+function aiResolve(side){
+  G.units.filter(u=>u.owner===side&&u.hp>0)
+    .sort((a,b)=> side==='P' ? b.col-a.col : a.col-b.col)
+    .forEach(u=>{ if(u.hp>0) aiAct(u); });
+  cleanup();
+}
+/* 回合結束：結算建築荊棘、清場、換手 */
+function endOfTurn(side){
+  G.units.filter(u=>u.owner===side&&u.hp>0&&u.thorns>0).forEach(b=>{
+    G.units.filter(o=>o.hp>0&&o.owner!==side&&
+      ((o.lane===b.lane&&Math.abs(o.col-b.col)===1)||(o.col===b.col&&Math.abs(o.lane-b.lane)===1)))
+      .forEach(o=>{ say(`${CARDS[b.card].n} 的 <b>荊棘</b> 反擊 ${CARDS[o.card].n}`); damage(o,b.thorns,b); });
+  });
+  G[side].rangedBuff=0;
+  G.units.filter(u=>u.owner===side).forEach(u=>u.buff=0);
+  cleanup();
+  if(side==='E') G.turn++;
+  render();
+  checkEnd();
+}
+function cleanup(){
+  G.units.filter(u=>u.hp<=0).forEach(u=>say(`${CARDS[u.card].n} 陣亡`));
+  G.units=G.units.filter(u=>u.hp>0);
+}
+function checkEnd(){
+  if(G.over) return;
+  if(G.P.hp<=0||G.E.hp<=0){
+    G.over=true;
+    const win=G.E.hp<=0 && G.P.hp>0;
+    const gem = win?WIN_GEMS:LOSE_GEMS;
+    save.gems+=gem; persist();
+    bTitle.textContent = win?'⚔ 勝利！':'💀 敗北';
+    bText.innerHTML = `${win?'敵方城堡陷落。':'你的城堡被攻破了。'}<br>獲得 💎${gem} 寶石（目前 💎${save.gems}）<br><br>去卡包商店擴充你的牌組吧。`;
+    banner.classList.add('on');
+    pendingAfterBanner=()=>go('menu');
+  }
+}
+function flash(u){
+  const el=document.querySelector('[data-u="'+u.id+'"]');
+  if(el){ el.classList.add('hit'); setTimeout(()=>el.classList.remove('hit'),350); }
+}
+
+/* ---------- 英雄技能 ---------- */
+function useHero(){
+  if(G.side!=='P'||G.P.heroUsed) return;
+  const c=CIVS[G.P.civ];
+  if(G.P.gold<c.skCost){ hint.textContent='金幣不足'; return; }
+  if(G.P.civ==='brit'){ G.P.gold-=c.skCost; G.P.heroUsed=true; G.P.rangedBuff=1;
+    say('<b>齊射命令</b>：本回合遠程單位攻擊 +1'); render(); return; }
+  if(G.P.civ==='teuton'){ G.mode={type:'hero',need:'buildingOrCastle'}; hint.textContent='選擇一個建築或你的城堡回血 3'; render(); return; }
+  if(G.P.civ==='france'){
+    const list=G.units.filter(u=>u.owner==='P').sort((a,b)=>b.col-a.col);
+    if(!list.length){ hint.textContent='場上沒有單位'; return; }
+    G.P.gold-=c.skCost; G.P.heroUsed=true; list[0].shield=true;
+    say('<b>神聖庇護</b>：'+CARDS[list[0].card].n+' 獲得聖盾'); render(); return;
+  }
+  if(G.P.civ==='mongol'){ G.mode={type:'hero',need:'cav'}; hint.textContent='選擇一個友方騎兵立刻行動'; render(); return; }
+}
+
+/* ---------- 點擊互動 ---------- */
+function clickCell(lane,col){
+  if(G.side!=='P'||G.over) return;
+  if(G.mode&&G.mode.type==='push'){
+    if(G.P.front[lane]+G.E.front[lane]<COLS && col===G.P.front[lane]){
+      doPush('P',lane); G.mode=null; hint.textContent=''; render();
+    }
+    return;
+  }
+  if(G.sel!==null){                       // 手上選了牌 → 部署
+    if(playCard('P',G.sel,lane,col)) { G.sel=null; hint.textContent=''; render(); }
+    return;
+  }
+  if(G.selUnit){                          // 選了單位 → 移動
+    const u=G.selUnit;
+    if(reachable(u).some(c=>c.lane===lane&&c.col===col)){
+      moveUnit(u,lane,col);
+      if(!canAct(u)) G.selUnit=null;      // 行動額度用完就取消選取
+      render();
+    }
+  }
+}
+function clickUnit(u){
+  if(G.side!=='P'||G.over) return;
+  if(G.mode&&G.mode.type==='push'){ clickCell(u.lane,u.col); return; }
+  if(G.mode&&G.mode.type==='hero'){
+    if(G.mode.need==='cav'&&u.owner==='P'&&u.tags.includes('騎兵')){
+      G.P.gold-=CIVS.mongol.skCost; G.P.heroUsed=true; G.mode=null; hint.textContent='';
+      u.moved=false; u.attacked=false; u.sick=false; G.selUnit=u;
+      say('<b>疾風突襲</b>：'+CARDS[u.card].n+' 可以再行動一次'); render(); return;
+    }
+    if(G.mode.need==='buildingOrCastle'&&u.owner==='P'&&u.kw.includes('building')){
+      G.P.gold-=CIVS.teuton.skCost; G.P.heroUsed=true; G.mode=null; hint.textContent='';
+      u.hp=Math.min(u.max,u.hp+5); say('<b>加固城防</b>：'+CARDS[u.card].n+' 回復 5'); render(); return;
+    }
+    return;
+  }
+  if(G.sel!==null){                       // 法術指定目標
+    const id=G.P.hand[G.sel];
+    if(CARDS[id].type==='spell'){ if(playCard('P',G.sel,0,0,u)){ G.sel=null; hint.textContent=''; render(); } }
+    return;
+  }
+  if(u.owner==='P'){                      // 選取／取消選取自己的單位
+    if(!canAct(u)){ hint.textContent=u.sick?'該單位本回合剛部署，還不能行動':'該單位本回合已行動完畢'; render(); return; }
+    G.selUnit = (G.selUnit===u ? null : u);
+    hint.textContent = G.selUnit ? '綠框=前進　黃框=換線/後退（本回合放棄攻擊）　紅框=攻擊' : '';
+    render(); return;
+  }
+  // 點敵方單位 → 用已選取的單位攻擊
+  if(!G.selUnit){ hint.textContent='請先點選一個自己的單位'; render(); return; }
+  const me=G.selUnit;
+  if(attackTargets(me).includes(u)){
+    attack(me,u);
+    cleanup();
+    if(me.hp<=0||!canAct(me)) G.selUnit=null;
+    render(); checkEnd(); return;
+  }
+  // 打不到 → 告訴玩家為什麼
+  const nmA=CARDS[me.card].n, nmB=CARDS[u.card].n;
+  if(!canAttack(me))       hint.textContent=`${nmA} 本回合已經攻擊過了`;
+  else hint.textContent=`${nmB} 距離 ${gridDist(me,u)} 格，超出 ${nmA} 的射程 ${me.rng}`;
+  render();
+}
+function clickCastle(side){
+  if(!G||G.side!=='P'||G.over) return;
+  if(G.mode&&G.mode.type==='hero'&&G.mode.need==='buildingOrCastle'&&side==='P'){
+    G.P.gold-=CIVS.teuton.skCost; G.P.heroUsed=true; G.mode=null; hint.textContent='';
+    G.P.hp=Math.min(CASTLE_HP,G.P.hp+2); say('<b>加固城防</b>：城堡回復 2'); render(); return;
+  }
+  if(side==='E'&&G.selUnit&&canHitCastle(G.selUnit)){
+    hitCastle(G.selUnit);
+    if(!canAct(G.selUnit)) G.selUnit=null;
+    render(); checkEnd();
+  }
+}
+
+/* =========================================================
+   渲染
+   ========================================================= */
+function render(){
+  if(!G) return;
+  const S=G.P;
+  goldTxt.textContent=`🪙 ${S.gold} / ${S.max}`;
+  deckTxt.textContent=`牌庫 ${S.deck.length}`;
+  php.textContent=G.P.hp; ehp.textContent=G.E.hp;
+  turnInfo.textContent=`回合 ${G.turn} · ${G.side==='P'?'你的回合':'敵方回合'}`;
+  villGold.disabled = G.side!=='P'||S.villDone||S.max>=GOLD_MAX;
+  villLand.disabled = G.side!=='P'||S.villDone||!canPush('P');
+  const hc=CIVS[S.civ];
+  heroBtn.textContent=`✦ ${hc.sk}（${hc.skCost}金）`;
+  heroBtn.title=hc.skT;
+  heroBtn.disabled = G.side!=='P'||S.heroUsed||S.gold<hc.skCost;
+  // 增益狀態用獨立欄位顯示，不要蓋掉 hint 的操作說明
+  buffTxt.style.display = S.rangedBuff>0 ? 'block' : 'none';
+  if(S.rangedBuff>0) buffTxt.textContent=`✦ 齊射命令生效中：遠程 +${S.rangedBuff}`;
+  endBtn.disabled = G.side!=='P';
+  castleP.classList.toggle('tg', !!(G.mode&&G.mode.need==='buildingOrCastle'));
+
+  // 盤面
+  const sel=G.selUnit&&G.selUnit.hp>0?G.selUnit:null;
+  if(G.selUnit&&!sel) G.selUnit=null;
+  const moves = sel? reachable(sel) : [];
+  const targets = sel? attackTargets(sel) : [];
+  castleE.classList.toggle('tg', !!(sel&&canHitCastle(sel)));
+  const spellSel = (G.sel!==null&&G.side==='P') ? CARDS[G.P.hand[G.sel]] : null;
+
+  board.innerHTML='';
+  for(let l=0;l<LANES;l++){
+    const row=document.createElement('div'); row.className='lane';
+    const lb=document.createElement('div'); lb.className='lbl'; lb.textContent=(l+1); row.appendChild(lb);
+    for(let c=0;c<COLS;c++){
+      const cell=document.createElement('div'); cell.className='cell';
+      if(ownsCell('P',l,c)) cell.classList.add('pT');
+      if(ownsCell('E',l,c)) cell.classList.add('eT');
+      if(G.mode&&G.mode.type==='push'&&c===G.P.front[l]&&G.P.front[l]+G.E.front[l]<COLS)
+        cell.classList.add('push');
+      const u=unitAt(l,c);
+      if(u){
+        const ue=document.createElement('div');
+        ue.className='unit '+u.owner; ue.dataset.u=u.id;
+        const cd=CARDS[u.card];
+        if(u===sel) ue.classList.add('sel');
+        if(u.owner==='P'&&G.side==='P'){
+          if(u.sick) ue.classList.add('sick');
+          else if(!canAct(u)) ue.classList.add('done');
+          else ue.classList.add('ready');   // 不論是否已選取其他單位，都持續標示「還能行動」
+        }
+        // 標示「還剩什麼行動」：移=只能移動（攻擊已用掉）　攻=只能攻擊（已移動過）　✓=全部用完
+        let badge='';
+        if(u.sick) badge='💤';
+        else if(u.owner==='P'&&G.side==='P'){
+          if(!canAct(u)) badge='✓';
+          else if(!canAttack(u)) badge='移';
+          else if(!canMove(u)) badge='攻';
+        }
+        const cbTag = (sel&&targets.includes(u)&&counterBonus(sel,u)>0)
+          ? `<div class="ctr">剋 +${counterBonus(sel,u)}</div>` : '';
+        ue.innerHTML=`<div>${u.kind?KIND_NAME[u.kind][0]:''}${cd.n}</div>
+          <div class="kw">${u.rng>1?'射'+u.rng:''} ${u.spd>1?'速'+u.spd:''} ${effDef(u)?'防'+effDef(u):''}</div>
+          ${cbTag}
+          ${u.shield?'<div class="shieldy">🛡</div>':''}
+          ${badge?`<div class="badge">${badge}</div>`:''}
+          <div class="s"><span class="a${buffAtk(u)>u.atk?' buff':''}">${buffAtk(u)}</span><span class="h">${u.hp}</span></div>`;
+        if(targets.includes(u)) ue.classList.add('tg');
+        if(G.mode&&G.mode.type==='hero'){
+          if((G.mode.need==='cav'&&u.owner==='P'&&u.tags.includes('騎兵'))||
+             (G.mode.need==='buildingOrCastle'&&u.owner==='P'&&u.kw.includes('building')))
+            ue.classList.add('tg');
+        }
+        if(spellSel&&spellSel.type==='spell'){
+          const sp=spellSel.target;
+          if((sp==='ally'&&u.owner==='P')||(sp==='enemy'&&u.owner==='E')||
+             (sp==='allyCav'&&u.owner==='P'&&u.tags.includes('騎兵'))||
+             (sp==='allyBuilding'&&u.owner==='P'&&u.kw.includes('building'))) ue.classList.add('tg');
+        }
+        ue.onclick=(e)=>{e.stopPropagation();clickUnit(u);};
+        cell.appendChild(ue);
+      }else{
+        const mv=moves.find(m=>m.lane===l&&m.col===c);
+        if(mv){ cell.classList.add('move');
+          if(mv.off&&offAxisCost(sel)) cell.classList.add('lat');  // 換線／後退格：本回合會放棄攻擊
+        }
+        else if(spellSel&&spellSel.type!=='spell'&&ownsCell('P',l,c)&&spellSel.cost<=S.gold)
+          cell.classList.add('drop');
+      }
+      cell.onclick=()=>clickCell(l,c);
+      row.appendChild(cell);
+    }
+    board.appendChild(row);
+  }
+  // 手牌
+  hand.innerHTML='';
+  S.hand.forEach((id,i)=>{
+    const el=cardEl(id, (CARDS[id].cost<=S.gold&&G.side==='P')?'playable':'dim');
+    if(G.sel===i) el.classList.add('sel');
+    el.onclick=()=>{
+      if(G.side!=='P'||CARDS[id].cost>S.gold) return;
+      G.mode=null;
+      if(CARDS[id].type==='spell'&&!CARDS[id].target){ playCard('P',i,0,0); render(); return; }
+      G.sel = (G.sel===i?null:i);
+      hint.textContent = G.sel===null?'':(CARDS[id].type==='spell'?'選擇法術目標':'點藍色領土的空格部署');
+      render();
+    };
+    hand.appendChild(el);
+  });
+}
+
+/* =========================================================
+   NPC
+   ========================================================= */
+function forwardOrder(side){
+  const a=[]; for(let c=0;c<COLS;c++) a.push(c);
+  return side==='P' ? a.reverse() : a;   // 各自從最前線往後找
+}
+function aiTurn(side){
+  side = side||'E';
+  if(!G||G.over) return;
+  const S=G[side], foe=other(side);
+  // ---- 村民抉擇 ----
+  const pressure = G.units.filter(u=>u.owner===foe).length;
+  if(S.max<7 && (G.turn<=3 || pressure<=2) && S.max<GOLD_MAX){
+    S.max++; S.gold++; say(`${nm(side)}選擇 <b>開發</b>：金幣上限 → ${S.max}`);
+  }else{
+    let best=-1,bs=-99;
+    for(let l=0;l<LANES;l++){
+      if(S.front[l]+G[foe].front[l]>=COLS) continue;
+      const sc = -laneThreat(l,side) + (3-S.front[l]);
+      if(sc>bs){bs=sc;best=l;}
+    }
+    if(best>=0) doPush(side,best);
+    else if(S.max<GOLD_MAX){ S.max++; S.gold++; say(`${nm(side)}選擇 <b>開發</b>：金幣上限 → ${S.max}`); }
+  }
+  S.villDone=true;
+  // ---- 英雄技能 ----
+  const hc=CIVS[S.civ];
+  if(!S.heroUsed&&S.gold>=hc.skCost){
+    if(S.civ==='brit'&&G.units.some(u=>u.owner===side&&u.rng>=2)){
+      S.gold-=hc.skCost;S.heroUsed=true;S.rangedBuff=1;say(`${nm(side)}使用 <b>齊射命令</b>`);
+    }else if(S.civ==='france'){
+      const l=G.units.filter(u=>u.owner===side&&!u.shield)
+        .sort((a,b)=> side==='P'? b.col-a.col : a.col-b.col);
+      if(l.length){S.gold-=hc.skCost;S.heroUsed=true;l[0].shield=true;say(`${nm(side)}使用 <b>神聖庇護</b>`);}
+    }else if(S.civ==='teuton'){
+      const bld=G.units.filter(u=>u.owner===side&&u.kw.includes('building')&&u.hp<u.max)
+        .sort((a,b)=>(a.hp/a.max)-(b.hp/b.max))[0];
+      if(bld){ S.gold-=hc.skCost;S.heroUsed=true;bld.hp=Math.min(bld.max,bld.hp+5);
+        say(`${nm(side)}使用 <b>加固城防</b>：${CARDS[bld.card].n} 回復 5`); }
+      else if(S.hp<CASTLE_HP-1){ S.gold-=hc.skCost;S.heroUsed=true;S.hp=Math.min(CASTLE_HP,S.hp+2);
+        say(`${nm(side)}使用 <b>加固城防</b>：城堡回復 2`); }
+    }else if(S.civ==='mongol'){
+      const cav=G.units.filter(u=>u.owner===side&&u.tags.includes('騎兵'))
+        .sort((a,b)=> side==='P'? b.col-a.col : a.col-b.col)[0];
+      if(cav){S.gold-=hc.skCost;S.heroUsed=true;say(`${nm(side)}使用 <b>疾風突襲</b>`);
+        cav.moved=false;cav.attacked=false;cav.sick=false;aiAct(cav);cleanup();
+        if(G[other(side)].hp<=0){checkEnd();if(G.over)return;}}
+    }
+  }
+  // ---- 出牌 ----
+  let guard=12;
+  while(guard-->0){
+    const playable=S.hand.map((id,i)=>({id,i})).filter(o=>CARDS[o.id].cost<=S.gold);
+    if(!playable.length) break;
+    playable.sort((a,b)=>CARDS[b.id].cost-CARDS[a.id].cost);
+    let done=false;
+    for(const o of playable){
+      const c=CARDS[o.id];
+      if(c.type==='spell'){
+        let t=null;
+        if(o.id==='heal') t=G.units.filter(u=>u.owner===side&&u.hp<u.max).sort((a,b)=>a.hp-b.hp)[0];
+        else if(o.id==='repair') t=G.units.filter(u=>u.owner===side&&u.kw.includes('building')&&u.hp<u.max).sort((a,b)=>a.hp-b.hp)[0];
+        else if(o.id==='blessing') t=G.units.filter(u=>u.owner===side&&(u.hp<u.max||!u.shield)).sort((a,b)=>b.max-a.max)[0];
+        else if(o.id==='warhorn') t=G.units.filter(u=>u.owner===side&&canAttack(u)&&attackTargets(u).length).sort((a,b)=>b.atk-a.atk)[0];
+        else if(o.id==='feign') t=G.units.filter(u=>u.owner===side&&u.moved&&!u.sick)[0];
+        else if(o.id==='arrowstorm'||o.id==='bodkin') t=G.units.filter(u=>u.owner===foe).sort((a,b)=>b.atk-a.atk)[0];
+        else if(o.id==='fireoil') t=G.units.filter(u=>u.owner===foe).sort((a,b)=>b.atk-a.atk)[0];
+        else if(o.id==='raid') t=G.units.filter(u=>u.owner===side&&u.tags.includes('騎兵'))[0];
+        if(o.id!=='levy'&&!t) continue;
+        if(playCard(side,o.i,0,0,t)){done=true;break;}
+      }else{
+        let bl=-1,bc=-1,bs=-999;
+        // 遠程單位放在後排（保住射程），近戰放在最前線
+        const order = c.rng>=2 ? forwardOrder(side).slice().reverse() : forwardOrder(side);
+        for(let l=0;l<LANES;l++){
+          for(const col of order){
+            if(!ownsCell(side,l,col)||unitAt(l,col)) continue;
+            const sc = laneThreat(l,side)*3
+                     - G.units.filter(u=>u.owner===side&&u.lane===l).length*2
+                     + (side==='P'?col:COLS-1-col)*0.5;
+            if(sc>bs){bs=sc;bl=l;bc=col;}
+            break; // 只考慮該路最前面的空格
+          }
+        }
+        if(bl<0) continue;
+        if(playCard(side,o.i,bl,bc)){done=true;break;}
+      }
+    }
+    if(!done) break;
+  }
+  render();
+  setTimeout(()=>{
+    if(G.over) return;
+    aiResolve(side);
+    render();
+    if(G.over){ checkEnd(); return; }
+    endOfTurn(side);
+    if(G.over) return;
+    beginTurn(other(side));
+  },500);
+}

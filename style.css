@@ -1,0 +1,155 @@
+:root{
+  --bg:#14110d; --bg2:#1d1913; --panel:#241f18; --line:#3c3226;
+  --gold:#d8b45a; --gold2:#f0d68f; --ink:#e8dfcd; --dim:#9a8d76;
+  --p:#5b8fd8; --e:#c4553f; --ok:#78b06a;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{
+  background:radial-gradient(1200px 700px at 50% -10%,#2a2318,#14110d 60%);
+  color:var(--ink);font-family:"Noto Sans TC","Microsoft JhengHei",system-ui,sans-serif;
+  font-size:14px;overflow:hidden}
+button{font-family:inherit;font-size:13px;color:var(--ink);background:linear-gradient(#3a3125,#2a2319);
+  border:1px solid var(--line);border-radius:6px;padding:7px 12px;cursor:pointer}
+button:hover:not(:disabled){border-color:var(--gold);color:var(--gold2)}
+button:disabled{opacity:.35;cursor:not-allowed}
+button.primary{background:linear-gradient(#7a5f22,#57430f);border-color:var(--gold)}
+h1,h2,h3{font-weight:700;margin:0}
+.screen{height:100vh}
+/* 用 :not(.active) 把特異性提到 (0,2,0)，才不會被同樣是 (0,1,0) 的 .col 蓋掉。
+   先前 .col{display:flex} 定義在後面且特異性相同，導致 screen 永遠隱藏不了。 */
+.screen:not(.active){display:none}
+.screen.active{display:flex}
+
+/* ---------- 主選單 ---------- */
+#menu{flex-direction:column;align-items:center;justify-content:center;gap:18px}
+#menu .logo{font-size:44px;letter-spacing:.3em;color:var(--gold2);text-shadow:0 0 30px #000}
+#menu .sub{color:var(--dim);letter-spacing:.2em}
+#menu .btns{display:flex;flex-direction:column;gap:10px;width:260px;margin-top:14px}
+#menu .btns button{padding:12px}
+.gems{position:fixed;top:14px;right:16px;background:var(--panel);border:1px solid var(--line);
+  border-radius:20px;padding:6px 14px;color:var(--gold2);pointer-events:none;z-index:5}
+
+/* ---------- 通用面板 ---------- */
+.topbar{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--line);
+  background:var(--bg2);position:relative;z-index:20;flex:0 0 auto}  /* 永遠疊在浮動徽章之上，按鈕不會被蓋住 */
+.col{display:flex;flex-direction:column;min-height:0}
+.scroll{overflow:auto}
+.scroll::-webkit-scrollbar{width:8px}
+.scroll::-webkit-scrollbar-thumb{background:#3c3226;border-radius:4px}
+
+/* ---------- 卡牌 ---------- */
+.card{position:relative;width:104px;height:146px;border-radius:9px;padding:6px;flex:0 0 auto;
+  border:1px solid var(--line);cursor:pointer;
+  background:linear-gradient(160deg,#39301f,#231d15);transition:transform .12s,box-shadow .12s}
+.card .nm{font-size:12px;font-weight:700;text-align:center;margin-top:16px;line-height:1.2}
+.card .tx{font-size:10px;color:#c8bda3;text-align:center;margin-top:4px;line-height:1.25}
+.card .cost{position:absolute;top:-6px;left:-6px;width:24px;height:24px;border-radius:50%;
+  background:radial-gradient(#f0d68f,#a4801f);color:#241f18;font-weight:700;display:grid;place-items:center;font-size:13px}
+.card .atk,.card .hp{position:absolute;bottom:4px;width:22px;height:22px;border-radius:50%;
+  display:grid;place-items:center;font-size:12px;font-weight:700;color:#fff}
+.card .atk{left:4px;background:#8a3b2c}
+.card .hp{right:4px;background:#3f6b39}
+.card .meta{position:absolute;bottom:6px;left:0;right:0;text-align:center;font-size:9px;color:var(--dim)}
+.card.playable{border-color:var(--gold);box-shadow:0 0 12px rgba(216,180,90,.35)}
+.card.sel{transform:translateY(-14px);box-shadow:0 0 18px var(--gold)}
+.card.dim{filter:grayscale(.7) brightness(.6)}
+.card.spell{background:linear-gradient(160deg,#2b2740,#1b1826)}
+.card.bld{background:linear-gradient(160deg,#33302a,#1e1c18)}
+
+/* ---------- 戰場 ---------- */
+#battle{flex-direction:column}
+.war{flex:1;display:flex;min-height:0}
+.field{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;
+  padding:10px;overflow:auto}
+.side{display:flex;flex-direction:column;align-items:center;gap:12px}
+.castle{width:264px;border:1px solid var(--line);border-radius:10px;padding:5px 12px;background:var(--panel);
+  display:flex;align-items:center;justify-content:center;gap:14px;font-size:13px}
+.castle .hpn{font-size:22px;font-weight:700}
+.castle.P{border-color:var(--p)} .castle.E{border-color:var(--e)}
+.castle.tg{outline:2px solid var(--gold);cursor:pointer}
+.board{display:flex;flex-direction:row;gap:6px}
+.lane{display:flex;flex-direction:column-reverse;gap:6px;align-items:center}
+.lane .lbl{width:84px;color:var(--dim);font-size:11px;text-align:center;padding-top:2px}
+.cell{width:84px;height:66px;border:1px solid #2e2820;border-radius:7px;background:#1b1712;
+  position:relative;display:grid;place-items:center}
+.cell.pT{background:linear-gradient(180deg,#1b2230,#181b22);border-color:#2b3c56}
+.cell.eT{background:linear-gradient(180deg,#2c1c18,#221713);border-color:#553028}
+.cell.drop{outline:2px dashed var(--gold);cursor:pointer}
+.cell.push{outline:2px dashed var(--ok);cursor:pointer}
+.cell.move{outline:2px dashed #58c07a;background:rgba(88,192,122,.12);cursor:pointer}
+.cell.move::after{content:'';width:12px;height:12px;border-radius:50%;background:rgba(120,220,150,.55)}
+/* 換線格：一般兵種走了就不能攻擊，用黃色與 ⇄ 區隔 */
+.cell.move.lat{outline-color:#d8b45a;background:rgba(216,180,90,.12)}
+.cell.move.lat::after{content:'⇄';width:auto;height:auto;background:none;color:#f0d68f;font-size:15px}
+.unit{width:76px;height:58px;border-radius:6px;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;font-size:10.5px;text-align:center;line-height:1.1;position:relative;padding:2px}
+.unit.P{background:linear-gradient(#2c4570,#1b2c48);border:1px solid #4f79b8}
+.unit.E{background:linear-gradient(#6b3226,#42201a);border:1px solid #b0604c}
+.unit.tg{outline:2px solid #ff6a4d;box-shadow:0 0 12px rgba(255,106,77,.6);cursor:pointer}
+.unit.sel{outline:2px solid var(--gold2);box-shadow:0 0 16px rgba(240,214,143,.7)}
+.unit.ready{box-shadow:0 0 0 1px rgba(120,220,150,.55) inset}  /* 還能行動 */
+.unit.done{filter:grayscale(.75) brightness(.62)}              /* 本回合行動完畢 */
+.unit.sick{filter:grayscale(.5) brightness(.7);opacity:.85}    /* 召喚失調 */
+.unit .badge{position:absolute;top:-4px;left:-4px;font-size:10px;background:#1b1712;
+  border:1px solid var(--gold);color:var(--gold2);border-radius:50%;width:18px;height:18px;
+  line-height:16px;text-align:center;font-weight:700}
+.unit .s{position:absolute;bottom:1px;left:0;right:0;display:flex;justify-content:space-between;padding:0 4px;font-weight:700}
+.unit .a{color:#ffb4a2} .unit .h{color:#b6e0ac}
+.unit .a.buff{color:#ffe08a;text-shadow:0 0 6px #ffb84d}  /* 受到增益的攻擊力 */
+.unit .kw{font-size:9px;color:var(--gold2)}
+.shieldy{position:absolute;top:-4px;right:-4px;font-size:12px}
+.hit{animation:hit .35s}
+@keyframes hit{0%{transform:scale(1)}30%{transform:scale(1.18);filter:brightness(1.9)}100%{transform:scale(1)}}
+
+.hud{display:flex;align-items:center;gap:16px;padding:8px 16px;border-top:1px solid var(--line);background:var(--bg2)}
+.hand{display:flex;gap:8px;padding:8px 16px;min-height:0;align-items:flex-end;overflow-x:auto;background:#100e0a}
+.gold{color:var(--gold2);font-size:16px;font-weight:700}
+.pill{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:4px 10px;font-size:12px}
+.log{width:250px;border-left:1px solid var(--line);background:#100e0a;padding:8px;font-size:11.5px;
+  color:var(--dim);display:flex;flex-direction:column;overflow:auto}
+.log div{padding:2px 0;border-bottom:1px solid #1e1a14}
+.log b{color:var(--gold2)}
+.banner{position:fixed;inset:0;display:none;place-items:center;background:rgba(10,8,6,.86);z-index:50}
+.banner.on{display:grid}
+.banner .box{background:var(--panel);border:1px solid var(--gold);border-radius:12px;padding:28px 40px;text-align:center}
+.banner .t{font-size:30px;color:var(--gold2);margin-bottom:10px}
+.hint{color:var(--gold2);font-size:12.5px}
+
+/* ---------- 組牌 / 商店 ---------- */
+.civs{display:flex;gap:12px;flex-wrap:wrap;padding:12px}
+.civ{width:190px;border:1px solid var(--line);border-radius:10px;padding:12px;background:var(--panel);cursor:pointer}
+.civ.on{border-color:var(--gold);box-shadow:0 0 14px rgba(216,180,90,.3)}
+.civ .t{color:var(--gold2);font-weight:700}
+.civ .d{font-size:11.5px;color:var(--dim);margin-top:6px;line-height:1.4}
+.pool{display:flex;flex-wrap:wrap;gap:8px;padding:12px}
+.decklist{width:270px;border-left:1px solid var(--line);background:var(--bg2);padding:10px}
+.drow{display:flex;justify-content:space-between;align-items:center;padding:5px 8px;margin-bottom:4px;
+  background:#2a241b;border:1px solid var(--line);border-radius:5px;cursor:pointer;font-size:12.5px}
+.drow:hover{border-color:var(--e)}
+.drow .c{color:var(--gold2);font-weight:700}
+.own{position:absolute;bottom:19px;left:0;right:0;text-align:center;font-size:9px;color:var(--dim)}
+.own b{color:var(--gold2);font-weight:700}
+
+/* ---------- 錯誤浮層（任何 JS 例外都會顯示在這裡，不再靜默失敗） ---------- */
+#fatal{position:fixed;top:0;left:0;right:0;z-index:999;background:#7a1f1f;color:#ffe;
+  font:12.5px/1.6 monospace;padding:0;white-space:pre-wrap;display:none;max-height:40vh;overflow:auto}
+#fatal.on{display:block;padding:10px 14px}
+#fatal .x{float:right;cursor:pointer;color:#ffb;font-weight:700}
+
+#boot{position:fixed;top:0;left:0;right:0;z-index:1000;background:#8a6a13;color:#fff;
+  font:12.5px/1.6 sans-serif;padding:8px 14px;text-align:center}
+#probe{position:fixed;bottom:8px;right:8px;z-index:998;background:#12222e;border:1px solid #3d5a72;
+  color:#9fd8ff;font:11.5px/1.5 monospace;padding:6px 10px;border-radius:6px;max-width:46vw;cursor:pointer}
+#probe.hide{display:none}
+
+/* 戰場的手牌略小於組牌頁，替縱向盤面讓出垂直空間 */
+.hand .card{width:94px;height:132px}
+.hand .card .nm{margin-top:14px;font-size:11.5px}
+.hand .card .tx{font-size:9.5px}
+
+/* 兵種與剋制標示 */
+.card .kind{position:absolute;top:4px;right:6px;font-size:9px;color:var(--gold2);opacity:.9}
+.unit .ctr{position:absolute;top:-6px;right:-6px;background:#c4553f;color:#fff;font-size:9px;
+  font-weight:700;border-radius:8px;padding:1px 4px;border:1px solid #ff9b86}
+.buffPill{border-color:var(--gold);color:var(--gold2);background:rgba(216,180,90,.12)}

@@ -1,0 +1,15 @@
+{
+  "name": "sandtablelore",
+  "version": "0.1.0",
+  "description": "沙盤傳說 — 中世紀卡牌戰棋原型（純 HTML/CSS/JS，無框架、無建置步驟）",
+  "private": true,
+  "scripts": {
+    "check": "node tools/check.js",
+    "test": "node tests/run.js",
+    "sim": "node tools/sim.js",
+    "decks": "node tools/sim.js --decks"
+  },
+  "devDependencies": {
+    "jsdom": "^26.0.0"
+  }
+}

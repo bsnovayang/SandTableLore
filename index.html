@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>沙盤傳說 — 中世紀卡牌戰棋</title>
+<link rel="stylesheet" href="style.css?v=18">
+</head>
+<body>
+<div id="fatal"></div>
+<!-- 開機自檢：game.js 載入成功後會把它移除；若一直看得到，就是資源沒載到 -->
+<div id="boot">⚠ 資源尚未載入完成。若這行字持續顯示，代表 style.css / game.js 載入失敗（按 F12 看 Console 與 Network）。</div>
+<!-- 點擊探針：顯示滑鼠位置上「最上層」的元素，用來抓遮擋問題 -->
+<div id="probe" title="點我可關閉">🐞 點擊探針：請點任一按鈕</div>
+
+<div class="gems" id="gemHud">💎 0</div>
+
+<!-- ================= 主選單 ================= -->
+<div class="screen active" id="menu">
+  <div class="logo">沙盤傳說</div>
+  <div class="sub">SAND TABLE LORE — 中世紀卡牌戰棋</div>
+  <div class="btns">
+    <button class="primary" onclick="go('deckbuild')">⚔ 出征（選文明 / 組牌）</button>
+    <button onclick="go('shop')">📦 卡包商店</button>
+    <button onclick="showRules()">📜 規則說明</button>
+  </div>
+  <div class="sub" style="font-size:11px;margin-top:20px">3 路 × 6 格 · 城堡 15 血 · 金幣上限 10 · 手牌上限 5</div>
+</div>
+
+<!-- ================= 組牌 ================= -->
+<div class="screen col" id="deckbuild" style="width:100%">
+  <div class="topbar">
+    <button onclick="go('menu')">← 返回</button>
+    <h2 style="font-size:16px">選擇文明與牌組</h2>
+    <div class="pill" id="deckCount">0 / 20</div>
+    <div class="pill" id="gemDeck">💎 0</div>
+    <div style="flex:1"></div>
+    <button onclick="autoFill()">自動補齊</button>
+    <button onclick="clearDeck()">清空</button>
+    <button class="primary" id="startBtn" onclick="startBattle()">開始對戰</button>
+  </div>
+  <div style="flex:1;display:flex;min-height:0">
+    <div class="col" style="flex:1;min-width:0">
+      <div class="civs" id="civList"></div>
+      <div style="padding:0 12px;color:var(--dim);font-size:12px">
+        點卡片加入牌組（同名上限 2 張，且不能超過收藏數量）。右下角數字為擁有張數。
+      </div>
+      <div class="pool scroll" id="pool" style="flex:1"></div>
+    </div>
+    <div class="decklist scroll" id="deckList"></div>
+  </div>
+</div>
+
+<!-- ================= 商店 ================= -->
+<div class="screen col" id="shop" style="width:100%">
+  <div class="topbar">
+    <button onclick="go('menu')">← 返回</button>
+    <h2 style="font-size:16px">卡包商店</h2>
+    <div class="pill" id="gemShop">💎 0</div>
+    <div style="flex:1"></div>
+    <button class="primary" onclick="buyPack()">購買卡包（💎100 / 3 張）</button>
+  </div>
+  <div style="padding:14px;color:var(--dim)">勝利 +💎40　失敗 +💎15</div>
+  <div class="pool scroll" id="packResult" style="flex:1"></div>
+</div>
+
+<!-- ================= 戰場 ================= -->
+<div class="screen col" id="battle" style="width:100%">
+  <div class="topbar">
+    <button onclick="quitBattle()">← 投降離開</button>
+    <div class="pill" id="turnInfo">回合 1</div>
+    <div class="pill" id="enemyInfo"></div>
+    <div style="flex:1"></div>
+    <div class="hint" id="hint"></div>
+  </div>
+  <div class="war">
+    <div class="field">
+      <div class="side">
+        <div class="castle E" id="castleE" onclick="clickCastle('E')">
+          <div>🏰 敵方城堡</div><div class="hpn" id="ehp">15</div>
+        </div>
+        <div class="board" id="board"></div>
+        <div class="castle P" id="castleP" onclick="clickCastle('P')">
+          <div>🏰 我方城堡</div><div class="hpn" id="php">15</div>
+        </div>
+      </div>
+    </div>
+    <div class="log scroll" id="log"></div>
+  </div>
+  <div class="hud">
+    <div class="gold" id="goldTxt">🪙 3 / 3</div>
+    <div class="pill" id="deckTxt">牌庫 0</div>
+    <button id="villGold" onclick="villager('gold')">🪙 開發：金幣上限 +1</button>
+    <button id="villLand" onclick="villager('land')">🚩 拓荒：領土 +1（選一路）</button>
+    <button id="heroBtn" onclick="useHero()">英雄技能</button>
+    <div class="pill buffPill" id="buffTxt" style="display:none"></div>
+    <div style="flex:1"></div>
+    <button class="primary" id="endBtn" onclick="endTurn()">結束回合 ▶</button>
+  </div>
+  <div class="hand" id="hand"></div>
+</div>
+
+<div class="banner" id="banner"><div class="box">
+  <div class="t" id="bTitle"></div>
+  <div id="bText" style="color:var(--dim);max-width:560px;line-height:1.7;text-align:left"></div>
+  <div style="margin-top:18px"><button class="primary" onclick="closeBanner()">確定</button></div>
+</div></div>
+
+<!-- 資料層（先載入）：改卡片／文明只需要動 data/ 底下的檔案 -->
+<script defer src="data/rules.js?v=18"></script>
+<script defer src="data/cards.js?v=18"></script>
+<script defer src="data/civs.js?v=18"></script>
+<!-- 邏輯層 -->
+<script defer src="game.js?v=18"></script>
+</body>
+</html>
