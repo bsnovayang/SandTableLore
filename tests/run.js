@@ -6,5 +6,6 @@ require('./rules.test.js');
 require('./spells.test.js');
 require('./ui.test.js');
 require('./flow.test.js');
+require('./deploy.test.js');
 
 runAll().then(bad => process.exit(bad ? 1 : 0));

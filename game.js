@@ -18,6 +18,13 @@ function showFatal(msg){
   body.textContent += String.fromCharCode(10) + '⚠ ' + msg;
   console.error(msg);
 }
+/* 錯誤處理器必須「最先」註冊 —— 否則在它之前發生的例外完全沒有人接，
+   畫面只會一片空白而查不到原因。這是實際踩過的坑，見 DESIGN.md。 */
+window.addEventListener('error',e=>{
+  showFatal((e.message||'錯誤')+'  @ '+String(e.filename||'').split('/').pop()+':'+e.lineno);
+});
+window.addEventListener('unhandledrejection',e=>showFatal('未處理的 Promise：'+e.reason));
+
 /* 追蹤：把執行進度顯示在右下角探針框，讓「靜默失敗」看得見 */
 let _tr=[];
 function trace(step){
@@ -74,7 +81,13 @@ function validateData(){
   return err;
 }
 
+/* boot() 全是「診斷與輔助功能」，不是遊戲本體。
+   包 try/catch 是為了確保它壞掉時遊戲照樣能玩，而不是整頁空白。 */
 function boot(){
+  try{ _boot(); }
+  catch(err){ showFatal('開機檢查失敗（遊戲仍可進行）：'+(err&&err.message?err.message:err)); }
+}
+function _boot(){
   // 1) CSS 是否真的套用了？（body 應為 overflow:hidden）
   const cssOK = getComputedStyle(document.body).overflow === 'hidden';
   // 2) JS 走到這裡就代表載入成功，移除警告條
@@ -142,13 +155,6 @@ function boot(){
     },true);
   }
 }
-if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
-else boot();
-
-window.addEventListener('error',e=>{
-  showFatal((e.message||'錯誤')+'  @ '+String(e.filename||'').split('/').pop()+':'+e.lineno);
-});
-window.addEventListener('unhandledrejection',e=>showFatal('未處理的 Promise：'+e.reason));
 
 /* localStorage 在 file:// 或無痕模式可能直接丟出 SecurityError，包起來保護 */
 let storageWarned=false;
@@ -1539,3 +1545,13 @@ function aiTurn(side){
     beginTurn(other(side));
   },500);
 }
+
+/* =========================================================
+   啟動
+   ---------------------------------------------------------
+   放在檔案最末端，確保呼叫時所有 let/const 都已完成初始化。
+   放在前面的話，boot() 內若碰到後面才宣告的變數會踩到 TDZ，
+   而且 boot() 拋錯會讓它後面的頂層程式碼（包含 save 的建立）全部不執行。
+   ========================================================= */
+if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+else boot();
