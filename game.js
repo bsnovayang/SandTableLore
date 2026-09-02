@@ -802,8 +802,13 @@ function playFx(){
       el.style.setProperty('--dy',dy+'px');
       el.style.setProperty('--rot',(Math.atan2(dy,dx)*180/Math.PI)+'deg');
     }else if(e.k==='slash'){
+      // 刀身是獨立子元素：從右上的一個點往左下「延伸」成線，而不是整條一起出現
       el.className='fx-slash';
       el.style.left=(to.x-32)+'px'; el.style.top=(to.y-32)+'px';
+      const blade=document.createElement('i');
+      blade.className='fx-blade';
+      blade.style.animationDelay=e.t+'ms';
+      el.appendChild(blade);          // animationend 會從子元素冒泡上來，仍會被移除
     }else if(e.k==='dmg'){
       el.className='fx-dmg'; el.textContent=e.text;
       el.style.left=to.x+'px'; el.style.top=(to.y-10)+'px';

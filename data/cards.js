@@ -48,9 +48,9 @@ const CARDS = {
 
   // ================= 蒙古（7）=================
   lightcav:{kind:'C',n:'輕騎兵',cost:2,atk:4,hp:6,rng:1,spd:2,tags:['騎兵'],kw:['mobile'],civ:'mongol',t:'速度2 · 機動 · 移動後攻擊不受反擊'},
-  horsearcher:{kind:'R',n:'蒙古弓騎',cost:3,atk:3,hp:5,rng:2,spd:2,tags:['騎兵','遠程'],kw:['mobile'],civ:'mongol',t:'速度2 射程2 · 機動'},
+  horsearcher:{kind:'R',n:'蒙古弓騎',cost:4,atk:3,hp:4,rng:2,spd:2,tags:['騎兵','遠程'],kw:['mobile'],civ:'mongol',t:'速度2 射程2 · 機動'},
   steppelancer:{kind:'C',n:'草原槍騎',cost:4,atk:5,hp:6,rng:1,spd:2,tags:['騎兵'],kw:['mobile'],civ:'mongol',t:'速度2 · 機動 · 高攻低血'},
-  mangudai:{kind:'R',n:'遊騎射手',cost:4,atk:5,hp:6,rng:2,spd:2,tags:['騎兵','遠程'],kw:['mobile'],civ:'mongol',t:'速度2 射程2 · 機動'},
+  mangudai:{kind:'R',n:'遊騎射手',cost:5,atk:2,hp:3,rng:2,spd:2,tags:['騎兵','遠程'],kw:['mobile'],civ:'mongol',t:'速度2 射程2 · 機動'},
   khanguard:{kind:'C',n:'怯薛軍',cost:6,atk:6,hp:8,def:1,rng:1,spd:2,tags:['騎兵'],kw:['mobile'],civ:'mongol',t:'速度2 · 機動 · 大汗親衛'},
   raid:   {n:'蒙古突襲',cost:2,type:'spell',target:'allyCav',civ:'mongol',t:'指定友方騎兵立刻行動一次'},
   feign:  {n:'佯退',cost:2,type:'spell',target:'ally',civ:'mongol',t:'一個友方單位立刻恢復移動額度'},

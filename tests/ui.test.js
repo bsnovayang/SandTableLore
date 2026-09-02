@@ -389,8 +389,14 @@ if (!L.hasJsdom()) {
            render();`);
     fakeLayout(g);
     g.run('attack(G.units[0], G.units[1]); render();');
-    ok(g.d.querySelector('#fx .fx-slash'), '應有刀光');
+    const slash = g.d.querySelector('#fx .fx-slash');
+    ok(slash, '應有刀光');
     eq(g.d.querySelectorAll('#fx .fx-arrow').length, 0, '近戰不該有箭矢');
+    const blade = slash.querySelector('.fx-blade');
+    ok(blade, '刀身應是獨立子元素（才能從一個點延伸成線）');
+    const st = g.w.getComputedStyle(blade);
+    ok(/scaleX\(0\)/.test(st.transform), '起始應為長度 0 的一個點，實際：' + st.transform);
+    eq(parseFloat(st.transformOrigin), 0, '延伸的支點要固定在起點');
   });
 
   test('受傷會跳出傷害數字', async () => {
