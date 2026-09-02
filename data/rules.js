@@ -25,7 +25,19 @@ const COUNTER_TABLE = {
   B:['I','C','R'],
 };
 
-const SAVE_KEY = 'stl_save_v2';   // 卡池有增減時提高版號，舊存檔自動失效重發
+const SAVE_KEY = 'stl_save_v3';   // 卡池或存檔結構有變時提高版號，舊存檔自動失效重發
 const PACK_COST = 100;            // 卡包售價
 const PACK_SIZE = 3;              // 每包張數
 const WIN_GEMS = 40, LOSE_GEMS = 15;
+
+/* 稀有度
+   weight 是卡包的抽取權重；dust 是超過同名上限時自動轉換的寶石數。
+   PACK_PITY 保底：每包至少有一張達到該稀有度以上（爐石的做法），
+   否則連開幾包都是普通卡，開包就沒有期待感。 */
+const RARITY = {
+  C: {n:'普通', color:'#9fb0c0', weight:70, dust:10},
+  R: {n:'精良', color:'#5b9fd8', weight:25, dust:25},
+  H: {n:'英雄', color:'#d8952a', weight: 5, dust:60},
+};
+const RARITY_ORDER = ['C','R','H'];
+const PACK_PITY = 'R';

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>沙盤傳說 — 中世紀卡牌戰棋</title>
-<link rel="stylesheet" href="style.css?v=28">
+<link rel="stylesheet" href="style.css?v=29">
 </head>
 <body>
 <div id="fatal"></div>
@@ -111,6 +111,29 @@
   <div style="margin-top:18px"><button class="primary" id="mullOk" onclick="finishMulligan()">開始對戰</button></div>
 </div></div>
 
+<!-- 開包儀式：封印 → 羊皮紙展開 → 翻牌 -->
+<div class="banner" id="packBanner"><div class="packStage" id="packStage">
+  <div class="packSkip"><button onclick="packSkip()">跳過 &#9656;</button></div>
+
+  <!-- 第一幕：羊皮紙軍令與火漆封印 -->
+  <div class="scroll-doc" id="packScroll">
+    <div class="scroll-body">
+      <div class="scroll-title">軍 事 密 令</div>
+      <div class="scroll-sub">SIGILLUM &middot; 封 緘</div>
+    </div>
+    <div class="wax" id="packWax" onclick="packBreak()">
+      <div class="wax-half a"></div>
+      <div class="wax-half b"></div>
+      <div class="wax-mark">&#9876;</div>
+    </div>
+    <div class="wax-hint" id="packHint">點擊火漆封印</div>
+  </div>
+
+  <!-- 第二幕：翻牌 -->
+  <div class="packCards" id="packCards"></div>
+  <div class="packFoot" id="packFoot"></div>
+</div></div>
+
 <!-- 除錯選單（F2 開關）。原型階段用，正式版可整段移除 -->
 <div id="debugPanel">
   <div class="dbgHead"><b>🐞 除錯選單</b><span class="dbgKey">F2 關閉</span></div>
@@ -155,10 +178,10 @@
 </div></div>
 
 <!-- 資料層（先載入）：改卡片／文明只需要動 data/ 底下的檔案 -->
-<script defer src="data/rules.js?v=28"></script>
-<script defer src="data/cards.js?v=28"></script>
-<script defer src="data/civs.js?v=28"></script>
+<script defer src="data/rules.js?v=29"></script>
+<script defer src="data/cards.js?v=29"></script>
+<script defer src="data/civs.js?v=29"></script>
 <!-- 邏輯層 -->
-<script defer src="game.js?v=28"></script>
+<script defer src="game.js?v=29"></script>
 </body>
 </html>

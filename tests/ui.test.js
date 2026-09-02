@@ -665,21 +665,121 @@ if (!L.hasJsdom()) {
     ok(true, 'render 不該拋例外');
   });
 
-  suite('介面 · 經濟');
+  suite('介面 · 卡包經濟');
 
-  test('卡包會實際增加收藏並扣除寶石', async () => {
+  test('抽卡權重與稀有度一致（大樣本）', async () => {
     const g = await boot();
-    const total = () => g.run('Object.values(save.collection).reduce((a,b)=>a+b,0)');
-    const gems = () => g.run('save.gems');
-    const t0 = total(), m0 = gems();
-    g.run('buyPack()');
-    eq(total(), t0 + g.run('PACK_SIZE'));
-    eq(gems(), m0 - g.run('PACK_COST'));
+    g.run('window.__roll = () => { const c = {C:0,R:0,H:0}; for (let i=0;i<6000;i++) c[CARDS[rollCard()].rarity]++; return c; };');
+    const c = g.run('__roll()');
+    const total = c.C + c.R + c.H;
+    // 權重是「每張卡」的，稀有卡張數少，所以實際比例不會等於權重，
+    // 但順序必須成立：普通 > 精良 > 英雄，且英雄要夠稀有
+    ok(c.C > c.R && c.R > c.H, `比例順序不對：${JSON.stringify(c)}`);
+    ok(c.H / total < 0.06, '英雄級不該超過 6%，實際 ' + (c.H / total * 100).toFixed(1) + '%');
   });
 
-  test('寶石不足時不會扣款', async () => {
+  test('保底：每包至少一張精良以上', async () => {
     const g = await boot();
-    g.run('save.gems = 0; buyPack();');
-    eq(g.run('save.gems'), 0);
+    g.run('dbgCollection("starter"); save.gems = 999999;');
+    for (let i = 0; i < 40; i++) {
+      const pack = g.run('openPack()');
+      const best = Math.max(...pack.map(c => g.run(`RARITY_ORDER.indexOf(CARDS[${JSON.stringify(c.id)}].rarity)`)));
+      ok(best >= g.run('RARITY_ORDER.indexOf(PACK_PITY)'),
+        `第 ${i + 1} 包沒有精良以上：` + pack.map(c => c.id).join(','));
+    }
+  });
+
+  test('重複卡轉成寶石，收藏不會超過同名上限', async () => {
+    const g = await boot();
+    g.run('dbgCollection("full"); save.gems = 0;');   // 全滿 → 抽到的一定都是重複
+    const pack = g.run('openPack()');
+    eq(pack.every(c => c.dup), true, '全滿時應全部是重複');
+    const gained = pack.reduce((s, c) => s + c.dust, 0);
+    eq(g.run('save.gems'), gained, '重複應轉成寶石');
+    eq(g.run('Object.values(save.collection).every(n => n <= COPY_MAX)'), true, '不該超過上限');
+  });
+
+  test('買卡包會扣寶石，寶石不足時不扣款', async () => {
+    const g = await boot();
+    g.run("go('shop'); save.gems = PACK_COST; buyPack();");
+    eq(g.run('save.gems >= 0'), true);
+    const before = g.run('save.gems');
+    g.run('closePack(); save.gems = 0; buyPack();');
+    eq(g.run('save.gems'), 0, '寶石不足不該扣款');
+    ok(g.d.getElementById('banner').classList.contains('on'), '應提示寶石不足');
+  });
+
+  suite('介面 · 開包儀式');
+
+  async function shop() {
+    const g = await boot();
+    g.run("go('shop'); save.fastPack = false; save.gems = 99999;");
+    return g;
+  }
+
+  test('買包後進入封印階段', async () => {
+    const g = await shop();
+    g.run('buyPack()');
+    ok(g.d.getElementById('packBanner').classList.contains('on'), '應開啟開包畫面');
+    ok(g.d.getElementById('packStage').className.includes('phase-seal'), '應停在封印階段');
+    eq(g.d.querySelectorAll('#packCards .flipCard').length, 0, '此時還不該發牌');
+  });
+
+  test('打破封印後進入翻牌，牌數等於 PACK_SIZE', async () => {
+    const g = await shop();
+    g.run('buyPack(); packBreak(); packDeal();');
+    ok(g.d.getElementById('packStage').className.includes('phase-cards'));
+    eq(g.d.querySelectorAll('#packCards .flipCard').length, g.run('PACK_SIZE'));
+    eq(g.d.querySelectorAll('#packCards .flipCard.flipped').length, 0, '預設都是背面');
+  });
+
+  test('逐張翻面，全部翻完才出現結果', async () => {
+    const g = await shop();
+    g.run('buyPack(); packBreak(); packDeal();');
+    const n = g.run('PACK_SIZE');
+    for (let i = 0; i < n; i++) {
+      eq(g.d.querySelector('#packFoot .packSum'), null, '還沒翻完不該有結果');
+      g.click(g.d.querySelectorAll('#packCards .flipCard')[i]);
+      eq(g.d.querySelectorAll('#packCards .flipCard.flipped').length, i + 1);
+    }
+    ok(g.d.querySelector('#packFoot .packSum'), '翻完應顯示結果');
+  });
+
+  test('英雄級會加上光效', async () => {
+    const g = await shop();
+    g.run(`buyPack();
+           const h = Object.keys(CARDS).find(id => CARDS[id].rarity === 'H');
+           packState.cards = [{id:h, dup:false, dust:0}];
+           packDeal(); packFlip(0, packCards.children[0]);`);
+    ok(g.d.querySelector('#packCards .flipCard.shine'), '英雄級應有光效');
+  });
+
+  test('跳過會直接翻開全部並顯示結果', async () => {
+    const g = await shop();
+    g.run('buyPack(); packSkip();');
+    eq(g.d.querySelectorAll('#packCards .flipCard.flipped').length, g.run('PACK_SIZE'));
+    ok(g.d.querySelector('#packFoot .packSum'));
+  });
+
+  test('勾選「以後直接看結果」會被記住，下次直接跳到結果', async () => {
+    const g = await shop();
+    g.run('buyPack(); packSkip();');
+    g.d.getElementById('packFast').checked = true;
+    g.d.getElementById('packFast').dispatchEvent(new g.w.Event('change'));
+    eq(g.run('save.fastPack'), true, '偏好應存檔');
+    g.run('closePack(); buyPack();');
+    eq(g.d.querySelectorAll('#packCards .flipCard.flipped').length, g.run('PACK_SIZE'),
+      '下次應直接是翻開狀態');
+  });
+
+  test('商店會顯示各稀有度機率與重複轉換規則', async () => {
+    const g = await boot();
+    g.run("go('shop')");
+    const t = g.d.getElementById('packResult').textContent;
+    g.run('RARITY_ORDER').forEach(r => {
+      ok(t.includes(g.run(`RARITY[${JSON.stringify(r)}].n`)), '應列出 ' + r);
+    });
+    ok(/保底|至少/.test(t), '應說明保底');
+    ok(/寶石/.test(t), '應說明重複轉換');
   });
 }

@@ -39,6 +39,8 @@ function validateData(){
     const c=CARDS[id], at=`卡牌 ${id}`;
     if(!c.n) err.push(`${at}：缺少名稱 n`);
     if(typeof c.cost!=='number') err.push(`${at}：缺少費用 cost`);
+    if(!c.rarity) err.push(`${at}：缺少稀有度 rarity`);
+    else if(!RARITY[c.rarity]) err.push(`${at}：rarity '${c.rarity}' 無效（可用：${Object.keys(RARITY).join('/')}）`);
     if(!c.civ) err.push(`${at}：缺少 civ`);
     else if(c.civ!=='N'&&!civIds.includes(c.civ)) err.push(`${at}：civ '${c.civ}' 不存在於 CIVS`);
     if(c.type==='spell'){
@@ -113,7 +115,7 @@ function boot(){
   // 5) 檢查程式碼依賴的「id 當全域變數」是否真的成立
   const need=['gemHud','civList','pool','deckList','deckCount','startBtn','packResult','turnInfo',
     'enemyInfo','hint','board','log','castleP','castleE','php','ehp','goldTxt','deckTxt',
-    'villGold','villLand','heroBtn','endBtn','hand','banner','bTitle','bText','buffTxt','undoBtn','bOk','bCancel','mullBanner','mullCards','mullOk','fx','codex','debugPanel','dbgState'];
+    'villGold','villLand','heroBtn','endBtn','hand','banner','bTitle','bText','buffTxt','undoBtn','bOk','bCancel','mullBanner','mullCards','mullOk','fx','codex','debugPanel','dbgState','packBanner','packStage','packHint','packCards','packFoot'];
   const bad=need.filter(id=>{
     const el=document.getElementById(id);
     if(!el) return true;                 // HTML 裡根本沒這個元素
@@ -188,6 +190,7 @@ function go(id){
   document.getElementById(id).classList.add('active');
   gemHud.style.display = id==='menu' ? 'block':'none';
   if(id==='deckbuild') openDeckbuild();
+  if(id==='shop') renderShopHint();
 }
 const RULES_HTML = `<b>盤面</b>：3 路 × 6 格，敵方城堡在上、我方在下。走到底就直擊城堡（15 血）。<br>
 <b>部署</b>：只能放在自己「領土」內的空格。當回合部署的單位不能行動（💤），下回合才能動。<br>
@@ -302,7 +305,8 @@ function clearDeck(){ deck=[]; renderDeckbuild(); }
 function cardEl(id,extraCls){
   const c=CARDS[id];
   const d=document.createElement('div');
-  d.className='card '+(c.type==='spell'?'spell':(c.kw&&c.kw.includes('building')?'bld':''))+' '+(extraCls||'');
+  d.className='card '+(c.type==='spell'?'spell':(c.kw&&c.kw.includes('building')?'bld':''))
+    +' rar'+(c.rarity||'C')+' '+(extraCls||'');
   let body=`<div class="cost">${c.cost}</div>`
     + (c.kind?`<div class="kind">${KIND_NAME[c.kind]}</div>`:'')
     + `<div class="nm">${c.n}</div>`;
@@ -321,17 +325,218 @@ function cardEl(id,extraCls){
 /* =========================================================
    商店
    ========================================================= */
-function buyPack(){
-  if(save.gems<PACK_COST){ bTitle.textContent='寶石不足'; bText.textContent='需要 💎'+PACK_COST+'，去打幾場吧！'; banner.classList.add('on'); return; }
-  save.gems-=PACK_COST;
-  const all=Object.keys(CARDS);
-  packResult.innerHTML='';
+/* 依稀有度權重抽一張卡 */
+function rollCard(minRarity){
+  const min = minRarity ? RARITY_ORDER.indexOf(minRarity) : 0;
+  const pool = Object.keys(CARDS).filter(id => RARITY_ORDER.indexOf(CARDS[id].rarity) >= min);
+  const total = pool.reduce((s,id)=>s+RARITY[CARDS[id].rarity].weight, 0);
+  let r = Math.random()*total;
+  for(const id of pool){
+    r -= RARITY[CARDS[id].rarity].weight;
+    if(r<=0) return id;
+  }
+  return pool[pool.length-1];
+}
+
+/* 開一包。回傳每張卡的結果，供開包動畫逐張揭曉。
+   超過同名上限的卡直接轉成寶石 —— 否則多抽的卡完全沒有用途。 */
+function openPack(){
+  const out=[];
   for(let i=0;i<PACK_SIZE;i++){
-    const id=all[Math.floor(Math.random()*all.length)];
-    save.collection[id]=(save.collection[id]||0)+1;
-    packResult.appendChild(cardEl(id));
+    // 保底：最後一張若整包都還沒出精良以上，就強制抽精良以上
+    const needPity = (i===PACK_SIZE-1) &&
+      !out.some(o=>RARITY_ORDER.indexOf(CARDS[o.id].rarity) >= RARITY_ORDER.indexOf(PACK_PITY));
+    const id = rollCard(needPity ? PACK_PITY : null);
+    const own = save.collection[id]||0;
+    if(own >= COPY_MAX){
+      const dust = RARITY[CARDS[id].rarity].dust;
+      save.gems += dust;
+      out.push({id, dup:true, dust});
+    }else{
+      save.collection[id] = own + 1;
+      out.push({id, dup:false, dust:0});
+    }
   }
   persist();
+  return out;
+}
+
+/* =========================================================
+   開包儀式
+   ---------------------------------------------------------
+   三幕：火漆封印 → 打破後羊皮紙展開 → 卡片逐張翻面。
+   全程可跳過 —— 開包會重複幾十次，不能跳的動畫到第十包就是折磨。
+   偏好記在存檔裡，勾過「以後直接看結果」之後就不再播動畫。
+   音效用 Web Audio 合成，不需要任何音檔。
+   ========================================================= */
+let packState=null;
+
+function showPackOpening(cards){
+  packState={cards, flipped:new Set(), phase:'seal'};
+  packBanner.classList.add('on');
+  packStage.className='packStage phase-seal';
+  packHint.textContent='點擊火漆封印';
+  packCards.innerHTML='';
+  packFoot.innerHTML='';
+  if(save.fastPack) packSkip();
+}
+
+/* 打破封印：蠟片裂開飛散 → 羊皮紙展開 → 進入翻牌 */
+function packBreak(){
+  if(!packState||packState.phase!=='seal') return;
+  packState.phase='breaking';
+  packStage.className='packStage phase-breaking';
+  packHint.textContent='';
+  sfxCrack();
+  setTimeout(()=>{ if(packState&&packState.phase==='breaking') packDeal(); }, 760);
+}
+
+/* 發牌：背面朝上排開，逐張點擊翻面 */
+function packDeal(){
+  if(!packState) return;
+  packState.phase='cards';
+  packStage.className='packStage phase-cards';
+  packCards.innerHTML='';
+  packState.cards.forEach((c,i)=>{
+    const wrap=document.createElement('div');
+    wrap.className='flipCard';
+    wrap.style.animationDelay=(i*90)+'ms';
+    const inner=document.createElement('div');
+    inner.className='flipInner';
+    const back=document.createElement('div');
+    back.className='flipFace flipBack';
+    back.innerHTML='<span>&#9876;</span>';
+    const front=document.createElement('div');
+    front.className='flipFace flipFront rar-'+CARDS[c.id].rarity;
+    front.appendChild(cardEl(c.id));
+    if(c.dup){
+      const tag=document.createElement('div');
+      tag.className='dupTag';
+      tag.textContent='重複 → 💎'+c.dust;
+      front.appendChild(tag);
+    }
+    inner.appendChild(back); inner.appendChild(front);
+    wrap.appendChild(inner);
+    wrap.onclick=()=>packFlip(i,wrap);
+    packCards.appendChild(wrap);
+  });
+  packFoot.innerHTML='<span class="packTip">點卡片翻面</span>';
+}
+
+function packFlip(i,wrap){
+  if(!packState||packState.flipped.has(i)) return;
+  packState.flipped.add(i);
+  wrap.classList.add('flipped');
+  const rar=CARDS[packState.cards[i].id].rarity;
+  if(rar==='H'){
+    wrap.classList.add('shine');
+    packStage.classList.add('quake');
+    sfxRare();
+    setTimeout(()=>packStage.classList.remove('quake'),420);
+  }else sfxFlip();
+  if(packState.flipped.size===packState.cards.length) packDone();
+}
+
+/* 跳過：直接進到全部翻開的結果 */
+function packSkip(){
+  if(!packState) return;
+  packDeal();
+  packState.cards.forEach((c,i)=>{
+    packState.flipped.add(i);
+    const w=packCards.children[i];
+    if(w){
+      w.classList.add('flipped','instant');
+      if(CARDS[c.id].rarity==='H') w.classList.add('shine');
+    }
+  });
+  packDone();
+}
+
+function packDone(){
+  const dust=packState.cards.reduce((s,c)=>s+c.dust,0);
+  const best=packState.cards.map(c=>CARDS[c.id].rarity)
+    .sort((a,b)=>RARITY_ORDER.indexOf(b)-RARITY_ORDER.indexOf(a))[0];
+  packFoot.innerHTML=
+    '<div class="packSum">本包最佳：<b style="color:'+RARITY[best].color+'">'+RARITY[best].n+'</b>'
+    + (dust?'　重複轉換：💎'+dust:'') + '</div>'
+    + '<label class="packPref"><input type="checkbox" id="packFast"'
+    + (save.fastPack?' checked':'')
+    + ' onchange="save.fastPack=this.checked;persist()"> 以後直接看結果</label>'
+    + '<button class="primary" onclick="closePack()">收下</button>';
+}
+
+function closePack(){
+  packBanner.classList.remove('on');
+  packState=null;
+  renderShopHint();
+}
+
+/* 商店頁的機率說明 */
+function renderShopHint(){
+  const el=document.getElementById('packResult');
+  if(!el||typeof el.appendChild!=='function') return;
+  el.innerHTML='<div class="shopNote">'
+    + RARITY_ORDER.map(r=>'<span class="rarLegend" style="--c:'+RARITY[r].color+'">'
+        + RARITY[r].n+' '+RARITY[r].weight+'%</span>').join('')
+    + '<div class="shopSub">每包 '+PACK_SIZE+' 張，至少 1 張'+RARITY[PACK_PITY].n+'以上。'
+    + '超過同名上限 '+COPY_MAX+' 張的卡自動轉成寶石（'
+    + RARITY_ORDER.map(r=>RARITY[r].n+' 💎'+RARITY[r].dust).join('／')
+    + '）。</div></div>';
+}
+
+/* ---------- 音效：Web Audio 合成，不需要音檔 ---------- */
+function sfx(build){
+  try{
+    const AC=window.AudioContext||window.webkitAudioContext;
+    if(!AC) return;
+    if(!sfx.ctx) sfx.ctx=new AC();
+    build(sfx.ctx);
+  }catch(e){}
+}
+function sfxCrack(){        // 白噪音爆點經低通濾波，像蠟裂
+  sfx(ctx=>{
+    const n=Math.floor(ctx.sampleRate*0.25);
+    const buf=ctx.createBuffer(1,n,ctx.sampleRate), d=buf.getChannelData(0);
+    for(let i=0;i<n;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/n,3);
+    const src=ctx.createBufferSource(); src.buffer=buf;
+    const f=ctx.createBiquadFilter(); f.type='lowpass'; f.frequency.value=1800;
+    const g=ctx.createGain(); g.gain.value=0.35;
+    src.connect(f); f.connect(g); g.connect(ctx.destination); src.start();
+  });
+}
+function sfxFlip(){
+  sfx(ctx=>{
+    const o=ctx.createOscillator(), g=ctx.createGain();
+    o.type='triangle';
+    o.frequency.setValueAtTime(520,ctx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(900,ctx.currentTime+0.06);
+    g.gain.setValueAtTime(0.08,ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+0.12);
+    o.connect(g); g.connect(ctx.destination); o.start(); o.stop(ctx.currentTime+0.13);
+  });
+}
+function sfxRare(){         // 英雄級：上行三音號角
+  sfx(ctx=>{
+    [660,880,1320].forEach((f,i)=>{
+      const o=ctx.createOscillator(), g=ctx.createGain();
+      const t=ctx.currentTime+i*0.09;
+      o.type='sine'; o.frequency.setValueAtTime(f,t);
+      g.gain.setValueAtTime(0.001,t);
+      g.gain.exponentialRampToValueAtTime(0.14,t+0.02);
+      g.gain.exponentialRampToValueAtTime(0.001,t+0.42);
+      o.connect(g); g.connect(ctx.destination); o.start(t); o.stop(t+0.45);
+    });
+  });
+}
+
+function buyPack(){
+  if(save.gems<PACK_COST){
+    dialog('寶石不足','需要 💎'+PACK_COST+'，去打幾場吧！');
+    return;
+  }
+  save.gems-=PACK_COST;
+  const cards=openPack();
+  showPackOpening(cards);
 }
 
 /* =========================================================

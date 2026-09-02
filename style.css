@@ -272,3 +272,129 @@ h1,h2,h3{font-weight:700;margin:0}
 #debugPanel button{flex:1;font-size:11px;padding:6px 4px;white-space:nowrap}
 #debugPanel button.danger{border-color:#a33c2a;color:#ff9b86}
 #debugPanel button.danger:hover:not(:disabled){border-color:#ff6a4d;color:#ffc7bb}
+
+/* =========================================================
+   開包儀式
+   ---------------------------------------------------------
+   純 CSS：火漆用 radial-gradient 做蠟的厚度、inset shadow 做壓印凹陷；
+   裂開是把封印切成兩片 clip-path 各自飛散；翻牌用 rotateY + backface-visibility。
+   唯一「假」的是煙塵 —— 用幾個模糊圓點飄散，比粒子系統便宜太多且夠用。
+   ========================================================= */
+.packStage{position:relative;width:min(760px,92vw);min-height:420px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px}
+.packStage.quake{animation:packQuake .4s}
+@keyframes packQuake{
+  0%,100%{transform:translate(0,0)}
+  20%{transform:translate(-6px,3px)} 40%{transform:translate(5px,-4px)}
+  60%{transform:translate(-4px,-2px)} 80%{transform:translate(3px,3px)}
+}
+.packSkip{position:absolute;top:-6px;right:0}
+.packSkip button{font-size:11.5px;padding:5px 10px;opacity:.75}
+
+/* ---------- 第一幕：羊皮紙軍令 ---------- */
+.scroll-doc{position:relative;width:300px;height:250px;display:grid;place-items:center}
+.phase-cards .scroll-doc{display:none}
+.scroll-body{position:absolute;inset:0;border-radius:6px;
+  background:linear-gradient(#e8dcc0,#cdbb96 55%,#bda882);
+  box-shadow:inset 0 0 40px rgba(120,90,50,.45),0 10px 30px rgba(0,0,0,.5);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;
+  transform:scaleY(.06);transform-origin:center;opacity:.9}
+.phase-breaking .scroll-body{animation:unfurl .55s .22s cubic-bezier(.2,.9,.3,1) forwards}
+@keyframes unfurl{
+  0%  {transform:scaleY(.06);opacity:.9}
+  70% {transform:scaleY(1.04);opacity:1}
+  100%{transform:scaleY(1);opacity:1}
+}
+.scroll-title{font-size:24px;letter-spacing:.35em;color:#5c4526;font-weight:700;
+  opacity:0;text-indent:.35em}
+.scroll-sub{font-size:11px;letter-spacing:.3em;color:#8a7047;opacity:0}
+.phase-breaking .scroll-title,.phase-breaking .scroll-sub{animation:fadeUp .4s .55s forwards}
+@keyframes fadeUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* ---------- 火漆封印 ---------- */
+.wax{position:absolute;width:96px;height:96px;cursor:pointer;z-index:2;
+  filter:drop-shadow(0 6px 12px rgba(0,0,0,.55));
+  animation:waxBreathe 2.4s ease-in-out infinite}
+@keyframes waxBreathe{0%,100%{transform:scale(1)}50%{transform:scale(1.04)}}
+.wax:hover{animation:none;transform:scale(1.07)}
+.phase-breaking .wax,.phase-cards .wax{pointer-events:none;animation:none}
+.wax-half{position:absolute;inset:0;border-radius:50%;
+  background:radial-gradient(circle at 34% 30%,#c85a44,#8e2f22 62%,#5e1a12);
+  box-shadow:inset 0 -6px 14px rgba(0,0,0,.5),inset 0 4px 10px rgba(255,180,160,.35)}
+.wax-half.a{clip-path:polygon(0 0,100% 0,100% 38%,58% 52%,100% 66%,100% 100%,0 100%,0 62%,42% 50%,0 36%)}
+.wax-half.b{clip-path:polygon(100% 0,100% 100%,42% 100%,42% 66%,66% 52%,42% 38%,42% 0)}
+.wax-mark{position:absolute;inset:0;display:grid;place-items:center;font-size:38px;
+  color:#f0c9b8;text-shadow:0 2px 3px rgba(0,0,0,.6);opacity:.85;pointer-events:none}
+.phase-breaking .wax-half.a{animation:shardL .7s cubic-bezier(.3,.1,.6,1) forwards}
+.phase-breaking .wax-half.b{animation:shardR .7s cubic-bezier(.3,.1,.6,1) forwards}
+.phase-breaking .wax-mark{animation:markOut .35s forwards}
+@keyframes shardL{
+  0%{transform:none;opacity:1}
+  22%{transform:translate(-10px,-6px) rotate(-9deg)}
+  100%{transform:translate(-150px,190px) rotate(-70deg);opacity:0}
+}
+@keyframes shardR{
+  0%{transform:none;opacity:1}
+  22%{transform:translate(10px,-4px) rotate(7deg)}
+  100%{transform:translate(160px,205px) rotate(80deg);opacity:0}
+}
+@keyframes markOut{to{opacity:0;transform:scale(1.5)}}
+.wax-hint{position:absolute;bottom:-34px;font-size:12px;color:var(--gold2);
+  animation:hintPulse 1.8s ease-in-out infinite;white-space:nowrap}
+@keyframes hintPulse{0%,100%{opacity:.5}50%{opacity:1}}
+
+/* 煙塵：幾個模糊圓點飄散，比粒子系統便宜且夠用 */
+.scroll-doc::before,.scroll-doc::after{content:'';position:absolute;left:50%;top:50%;
+  width:80px;height:80px;margin:-40px 0 0 -40px;border-radius:50%;opacity:0;
+  background:radial-gradient(circle,rgba(220,205,180,.55),rgba(220,205,180,0) 70%);
+  pointer-events:none}
+.phase-breaking .scroll-doc::before{animation:puff .8s ease-out forwards}
+.phase-breaking .scroll-doc::after{animation:puff .95s .1s ease-out forwards}
+@keyframes puff{
+  0%{opacity:.8;transform:scale(.4)}
+  100%{opacity:0;transform:scale(3.2) translateY(-24px)}
+}
+
+/* ---------- 第二幕：翻牌 ---------- */
+.packCards{display:none;gap:16px;perspective:1200px}
+.phase-cards .packCards{display:flex}
+.flipCard{width:104px;height:146px;cursor:pointer;animation:dealIn .32s backwards}
+@keyframes dealIn{from{opacity:0;transform:translateY(26px) scale(.9)}to{opacity:1;transform:none}}
+.flipInner{position:relative;width:100%;height:100%;
+  transition:transform .5s cubic-bezier(.3,.9,.3,1);transform-style:preserve-3d}
+.flipCard.flipped .flipInner{transform:rotateY(180deg)}
+.flipCard.instant .flipInner{transition:none}
+.flipFace{position:absolute;inset:0;backface-visibility:hidden;border-radius:9px}
+.flipBack{display:grid;place-items:center;font-size:34px;color:#8e6a3a;
+  background:linear-gradient(145deg,#3a2f21,#241d14);
+  border:1px solid #6b5330;box-shadow:inset 0 0 22px rgba(0,0,0,.6)}
+.flipFront{transform:rotateY(180deg)}
+/* 稀有度外框 */
+.flipFront.rar-C{box-shadow:0 0 0 1px #6d7c88}
+.flipFront.rar-R{box-shadow:0 0 0 2px #5b9fd8,0 0 16px rgba(91,159,216,.55)}
+.flipFront.rar-H{box-shadow:0 0 0 2px #d8952a,0 0 26px rgba(216,149,42,.75)}
+.flipCard.shine .flipFront::after{content:'';position:absolute;inset:-6px;border-radius:12px;
+  background:conic-gradient(from 0deg,transparent,rgba(255,214,120,.85),transparent 40%);
+  animation:halo 1.6s linear infinite;z-index:-1}
+@keyframes halo{to{transform:rotate(360deg)}}
+.dupTag{position:absolute;left:0;right:0;bottom:-19px;text-align:center;
+  font-size:10px;color:var(--gold2)}
+
+/* ---------- 結果列 ---------- */
+.packFoot{display:flex;align-items:center;gap:16px;min-height:34px;flex-wrap:wrap;
+  justify-content:center}
+.packTip{font-size:12px;color:var(--dim)}
+.packSum{font-size:13px;color:var(--ink)}
+.packPref{font-size:11.5px;color:var(--dim);display:flex;align-items:center;gap:5px;cursor:pointer}
+
+/* ---------- 商店的機率說明 ---------- */
+.shopNote{padding:4px 2px}
+.rarLegend{display:inline-block;margin-right:14px;font-size:12px;color:var(--c)}
+.rarLegend::before{content:'';display:inline-block;width:9px;height:9px;border-radius:2px;
+  background:var(--c);margin-right:6px;vertical-align:middle}
+.shopSub{margin-top:8px;font-size:11.5px;color:var(--dim);line-height:1.6}
+
+/* 組牌頁的卡片也標稀有度 */
+.card.rarC{border-color:#4a5560}
+.card.rarR{border-color:#3d6d96}
+.card.rarH{border-color:#9c6a1e;box-shadow:0 0 10px rgba(216,149,42,.3)}
