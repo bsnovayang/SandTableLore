@@ -89,6 +89,20 @@ if (!L.hasJsdom()) {
     eq(g.d.getElementById('startBtn').disabled, false);
   });
 
+  test('手牌容器留白足夠，選中的卡片不會被裁掉', async () => {
+    const g = await boot();
+    g.run("go('deckbuild'); autoFill(); startBattle(); finishMulligan();");
+    g.run('G.P.hand=["militia","sword"]; G.sel=0; render();');
+    const card = g.d.querySelector('#hand .card.sel');
+    ok(card, '應有選中的卡片');
+    const lift = Math.abs(parseFloat((g.w.getComputedStyle(card).transform.match(/-?[\d.]+px/) || ['0'])[0]));
+    const handStyle = g.w.getComputedStyle(g.d.getElementById('hand'));
+    const padTop = parseFloat(handStyle.paddingTop);
+    // overflow-x:auto 會讓 overflow-y 變成 auto → 容器會裁切子元素
+    ok(handStyle.overflowX !== 'visible', '前提：手牌是可捲動容器');
+    ok(padTop >= lift, `上方留白 ${padTop}px 應 ≥ 卡片抬起的 ${lift}px`);
+  });
+
   test('卡面的絕對定位元素沒有互相重疊', async () => {
     const g = await boot();
     g.run("go('deckbuild')");
