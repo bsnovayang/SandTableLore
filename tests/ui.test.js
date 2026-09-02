@@ -46,19 +46,33 @@ if (!L.hasJsdom()) {
     g.click(g.btn('#deckbuild .topbar', '自動補齊'));
     g.click(g.d.getElementById('startBtn'));
     eq(shown(), ['battle']);
+    ok(g.d.getElementById('mullBanner').classList.contains('on'), '開局應先跳起手換牌');
+    g.click(g.d.getElementById('mullOk'));
     g.click(g.d.querySelector('#battle .topbar button'));
+    eq(shown(), ['battle'], '投降要先確認，不該直接離開');
+    ok(g.d.getElementById('banner').classList.contains('on'), '應跳出確認對話框');
+    g.click(g.d.getElementById('bOk'));
     eq(shown(), ['menu']);
   });
 
   test('盤面是敵上我下的縱向配置', async () => {
     const g = await boot();
-    g.run("go('deckbuild'); autoFill(); startBattle();");
+    g.run("go('deckbuild'); autoFill(); startBattle(); finishMulligan();");
     eq([...g.d.querySelectorAll('.side > div')].map(e => e.id || 'board'),
       ['castleE', 'board', 'castleP']);
     eq(g.w.getComputedStyle(g.d.querySelector('.board')).flexDirection, 'row', '三路並排');
     eq(g.w.getComputedStyle(g.d.querySelector('.lane')).flexDirection, 'column-reverse', '第1格在最下');
     eq(g.d.querySelectorAll('#board .lane').length, 3);
     eq(g.d.querySelectorAll('#board .lane:first-child .cell').length, 6);
+  });
+
+  test('投降按取消不會離開對戰', async () => {
+    const g = await boot();
+    g.run("go('deckbuild'); autoFill(); startBattle(); finishMulligan();");
+    g.click(g.d.querySelector('#battle .topbar button'));
+    g.click(g.d.getElementById('bCancel'));
+    eq(g.visible('battle'), true, '按取消應留在戰場');
+    eq(g.run('G.over'), false, '對局不該被結束');
   });
 
   suite('介面 · 組牌');
@@ -94,7 +108,7 @@ if (!L.hasJsdom()) {
 
   test('行動額度的四種狀態都有標示', async () => {
     const g = await boot();
-    g.run("go('deckbuild'); autoFill(); startBattle();");
+    g.run("go('deckbuild'); autoFill(); startBattle(); finishMulligan();");
     g.run(`G.units=[]; G.selUnit=null; G.P.front=[COLS,COLS,COLS]; G.P.gold=99;
            G.P.hand=['sword']; playCard('P',0,1,1); window.U=G.units[0]; render();`);
     const badge = () => {
@@ -114,7 +128,7 @@ if (!L.hasJsdom()) {
 
   test('齊射命令的加成有反映在棋子數值上', async () => {
     const g = await boot();
-    g.run("go('deckbuild'); autoFill(); startBattle();");
+    g.run("go('deckbuild'); autoFill(); startBattle(); finishMulligan();");
     g.run(`G.P.civ='brit'; G.P.gold=9; G.P.heroUsed=false; G.units=[]; G.selUnit=null;
            G.P.front=[COLS,COLS,COLS]; G.P.hand=['archer']; playCard('P',0,1,1);
            G.units[0].sick=false; window.A=G.units[0]; render();`);
@@ -131,7 +145,7 @@ if (!L.hasJsdom()) {
 
   test('打不到的敵人會說明原因，而不是靜默無反應', async () => {
     const g = await boot();
-    g.run("go('deckbuild'); autoFill(); startBattle();");
+    g.run("go('deckbuild'); autoFill(); startBattle(); finishMulligan();");
     g.run(`G.units=[]; G.selUnit=null; G.P.front=[COLS,COLS,COLS]; G.E.front=[COLS,COLS,COLS];
            G.P.gold=99; G.E.gold=99;
            G.P.hand=['archer']; playCard('P',0,1,1); G.units[0].sick=false; window.A=G.units[0];
@@ -139,6 +153,175 @@ if (!L.hasJsdom()) {
            clickUnit(A); clickUnit(T);`);
     const hint = g.d.getElementById('hint').textContent;
     ok(/射程/.test(hint), '應說明超出射程，實際：' + hint);
+  });
+
+  suite('介面 · 起手換牌');
+
+  test('開局會跳出換牌畫面，手牌張數與起手一致', async () => {
+    const g = await boot();
+    g.run("go('deckbuild'); autoFill(); startBattle();");
+    ok(g.d.getElementById('mullBanner').classList.contains('on'));
+    eq(g.d.querySelectorAll('#mullCards .card').length, g.run('G.P.hand.length'));
+  });
+
+  // 注意：finishMulligan() 之後會接 beginTurn('P')，第一回合本來就會抽一張，
+  // 所以下面的斷言都要把那一張算進去。
+  test('不換牌：原本的起手牌一張都沒少', async () => {
+    const g = await boot();
+    g.run("go('deckbuild'); autoFill(); startBattle();");
+    const before = g.run('G.P.hand.slice()');
+    g.click(g.d.getElementById('mullOk'));
+    const after = g.run('G.P.hand.slice()');
+    eq(after.slice(0, before.length), before, '原本的牌應原封不動');
+    eq(after.length, before.length + 1, '多的那張是第一回合的正常抽牌');
+    eq(g.d.getElementById('mullBanner').classList.contains('on'), false, '關閉換牌畫面');
+  });
+
+  test('換掉一張：補回同樣張數，換掉的牌回到牌庫', async () => {
+    const g = await boot();
+    g.run("go('deckbuild'); autoFill(); startBattle();");
+    const n0 = g.run('G.P.hand.length'), deck0 = g.run('G.P.deck.length');
+    const dropped = g.run('G.P.hand[0]');
+    g.click(g.d.querySelectorAll('#mullCards .card')[0]);
+    eq(g.d.querySelectorAll('#mullCards .card.mull-drop').length, 1, '應標示為要換掉');
+    g.click(g.d.getElementById('mullOk'));
+    eq(g.run('G.P.hand.length'), n0 + 1, '換掉一張補一張，再加上回合抽牌');
+    eq(g.run('G.P.deck.length'), deck0 - 1, '牌庫淨減一張（回合抽牌）');
+    ok(g.run(`G.P.deck.concat(G.P.hand).includes(${JSON.stringify(dropped)})`),
+      '換掉的牌應回到牌庫而不是消失');
+  });
+
+  // 用可控的牌庫測，避免「補抽又抽到高費」造成偶發失敗
+  test('NPC 會把高費起手換掉', async () => {
+    const g = await boot();
+    g.run("go('deckbuild'); autoFill(); startBattle(); finishMulligan();");
+    g.run(`G.E.hand=['elite','elite','royalknight'];      // 全是 5 費以上
+           G.E.deck=['militia','militia','militia','militia'];
+           const drop=[]; G.E.hand.forEach((id,i)=>{ if(CARDS[id].cost>=5) drop.push(i); });
+           mulliganFor('E', drop);`);
+    eq(g.run('G.E.hand.length'), 3, '張數不變');
+    eq(g.run('G.E.hand.filter(id=>CARDS[id].cost>=5).length'), 0, '高費牌應全被換掉');
+    ok(g.run("G.E.deck.filter(id=>id==='elite').length") >= 2, '換掉的牌回到牌庫');
+  });
+
+  test('換掉的牌不會馬上又被抽回來', async () => {
+    const g = await boot();
+    g.run("go('deckbuild'); autoFill(); startBattle(); finishMulligan();");
+    // 手牌全部要換，牌庫只有民兵 —— 若順序寫錯就會抽回精銳長弓手
+    g.run(`G.P.hand=['elite','elite','elite'];
+           G.P.deck=['militia','militia','militia'];
+           mulliganFor('P',[0,1,2]);`);
+    eq(g.run("G.P.hand.filter(id=>id==='elite').length"), 0, '不該抽回剛換掉的牌');
+    eq(g.run("G.P.hand.filter(id=>id==='militia').length"), 3);
+  });
+
+  suite('介面 · 復原');
+
+  test('部署後復原：單位消失、金幣與手牌都回來', async () => {
+    const g = await boot();
+    g.run("go('deckbuild'); autoFill(); startBattle(); finishMulligan();");
+    g.run(`G.units=[]; G.selUnit=null; undoStack=[]; G.P.front=[COLS,COLS,COLS];
+           G.P.hand=['sword','militia']; G.P.gold=7; render();`);
+    const gold0 = g.run('G.P.gold'), hand0 = g.run('G.P.hand.length');
+    g.run("G.sel=0; clickCell(1,1);");
+    eq(g.run('G.units.length'), 1, '應部署成功');
+    g.run('undo()');
+    eq(g.run('G.units.length'), 0, '單位應消失');
+    eq(g.run('G.P.gold'), gold0, '金幣應回復');
+    eq(g.run('G.P.hand.length'), hand0, '手牌應回來');
+  });
+
+  test('攻擊後復原：雙方血量與行動額度都還原', async () => {
+    const g = await boot();
+    g.run("go('deckbuild'); autoFill(); startBattle(); finishMulligan();");
+    g.run(`G.units=[]; G.selUnit=null; undoStack=[];
+           G.P.front=[COLS,COLS,COLS]; G.E.front=[COLS,COLS,COLS]; G.P.gold=99; G.E.gold=99;
+           G.P.hand=['sword']; playCard('P',0,1,1); G.units[0].sick=false;
+           G.E.hand=['pike'];  playCard('E',0,1,2); G.units[1].sick=false;
+           window.A=G.units[0]; window.B=G.units[1]; clickUnit(A); clickUnit(B);`);
+    ok(g.run('A.hp') < g.run('A.max'), '攻擊方應受反擊');
+    ok(g.run('B.hp') < g.run('B.max'), '被攻擊方應受傷');
+    g.run('undo()');
+    const a = g.run('G.units.find(u=>u.owner==="P")'), b = g.run('G.units.find(u=>u.owner==="E")');
+    eq(a.hp, a.max, '攻擊方血量應還原');
+    eq(b.hp, b.max, '被攻擊方血量應還原');
+    eq(a.attacked, false, '攻擊額度應還原');
+  });
+
+  test('移動後復原：位置與行動額度都還原', async () => {
+    const g = await boot();
+    g.run("go('deckbuild'); autoFill(); startBattle(); finishMulligan();");
+    g.run(`G.units=[]; G.selUnit=null; undoStack=[]; G.P.front=[COLS,COLS,COLS]; G.P.gold=99;
+           G.P.hand=['scout']; playCard('P',0,1,1); G.units[0].sick=false;
+           window.U=G.units[0]; clickUnit(U); clickCell(1,3);`);
+    eq(g.run('U.col'), 3);
+    g.run('undo()');
+    const u = g.run('G.units[0]');
+    eq(u.col, 1, '位置應還原');
+    eq(u.moved, false, '移動額度應還原');
+  });
+
+  test('不能跨回合復原', async () => {
+    const g = await boot();
+    g.run("go('deckbuild'); autoFill(); startBattle(); finishMulligan();");
+    g.run(`G.units=[]; undoStack=[]; G.P.front=[COLS,COLS,COLS];
+           G.P.hand=['militia']; G.P.gold=9; G.sel=0; clickCell(1,1);`);
+    ok(g.run('undoStack.length') > 0, '本回合應可復原');
+    g.run("beginTurn('P')");
+    eq(g.run('undoStack.length'), 0, '新回合應清空復原堆疊');
+  });
+
+  test('復原按鈕在沒有可復原步驟時停用', async () => {
+    const g = await boot();
+    g.run("go('deckbuild'); autoFill(); startBattle(); finishMulligan();");
+    g.run('undoStack=[]; render();');
+    eq(g.d.getElementById('undoBtn').disabled, true);
+    g.run(`G.units=[]; G.P.front=[COLS,COLS,COLS]; G.P.hand=['militia']; G.P.gold=9;
+           G.sel=0; clickCell(1,1); render();`);
+    eq(g.d.getElementById('undoBtn').disabled, false);
+  });
+
+  suite('介面 · 資訊揭露');
+
+  test('棋子的滑鼠提示包含數值與關鍵字說明', async () => {
+    const g = await boot();
+    g.run("go('deckbuild'); autoFill(); startBattle(); finishMulligan();");
+    g.run(`G.units=[]; G.P.front=[COLS,COLS,COLS]; G.P.gold=99;
+           G.P.hand=['crusade']; playCard('P',0,1,1); G.units[0].sick=false; render();`);
+    const tip = g.d.querySelector('#board .unit').title;
+    ok(/十字軍/.test(tip), '應有名稱：' + tip);
+    ok(/攻擊/.test(tip) && /血量/.test(tip), '應有數值');
+    ok(/聖盾/.test(tip), '應解釋關鍵字');
+    ok(/陣型/.test(tip), '應解釋所有關鍵字');
+  });
+
+  test('已行動的狀態也會寫在提示裡', async () => {
+    const g = await boot();
+    g.run("go('deckbuild'); autoFill(); startBattle(); finishMulligan();");
+    g.run(`G.units=[]; G.P.front=[COLS,COLS,COLS]; G.P.gold=99;
+           G.P.hand=['sword']; playCard('P',0,1,1); window.U=G.units[0];
+           U.sick=false; U.attacked=true; render();`);
+    ok(/已攻擊/.test(g.d.querySelector('#board .unit').title));
+  });
+
+  test('對手文明特色可以看得到', async () => {
+    const g = await boot();
+    g.run("go('deckbuild'); autoFill(); startBattle(); finishMulligan();");
+    const tip = g.d.getElementById('enemyInfo').title;
+    const foe = g.run('CIVS[G.E.civ]');
+    ok(tip.includes(foe.sk), '應寫出英雄技能名稱：' + tip);
+    ok(tip.length > 20, '應包含文明特色說明');
+  });
+
+  test('移動後棋子帶有位移動畫', async () => {
+    const g = await boot();
+    g.run("go('deckbuild'); autoFill(); startBattle(); finishMulligan();");
+    g.run(`G.units=[]; G.selUnit=null; G.P.front=[COLS,COLS,COLS]; G.P.gold=99;
+           G.P.hand=['scout']; playCard('P',0,1,1); G.units[0].sick=false;
+           window.U=G.units[0]; clickUnit(U); clickCell(1,3);`);
+    const el = g.d.querySelector('#board .unit');
+    ok(el.classList.contains('slide'), '應加上動畫 class');
+    eq(g.run('G.units[0].anim'), null, '播放後應清掉，避免重複觸發');
   });
 
   suite('介面 · 經濟');

@@ -49,7 +49,8 @@ function topLevelNames(src) {
 function stubElement() {
   return {
     classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
-    style: {}, dataset: {}, lastChild: { textContent: '' },
+    style: { setProperty() {}, getPropertyValue() { return ''; }, removeProperty() {} },
+    dataset: {}, lastChild: { textContent: '' },
     appendChild() {}, prepend() {}, insertAdjacentHTML() {}, remove() {},
     querySelector() { return null; }, querySelectorAll() { return []; },
     set innerHTML(v) {}, get innerHTML() { return ''; },

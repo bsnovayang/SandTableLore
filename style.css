@@ -153,3 +153,15 @@ h1,h2,h3{font-weight:700;margin:0}
 .unit .ctr{position:absolute;top:-6px;right:-6px;background:#c4553f;color:#fff;font-size:9px;
   font-weight:700;border-radius:8px;padding:1px 4px;border:1px solid #ff9b86}
 .buffPill{border-color:var(--gold);color:var(--gold2);background:rgba(216,180,90,.12)}
+
+/* 起手換牌：被選中要換掉的牌 */
+.card.mull-drop{filter:grayscale(.85) brightness(.55);transform:translateY(8px)}
+.card.mull-drop::after{content:'換掉';position:absolute;inset:0;display:grid;place-items:center;
+  color:#ff9b86;font-weight:700;font-size:13px;background:rgba(120,30,20,.35);border-radius:9px}
+
+/* 移動動畫：從舊格子滑到新格子（--dx/--dy 由 render() 依實際位移設定） */
+.unit.slide{animation:slideIn .18s ease-out}
+@keyframes slideIn{
+  from{transform:translate(var(--dx,0),var(--dy,0))}
+  to{transform:translate(0,0)}
+}
