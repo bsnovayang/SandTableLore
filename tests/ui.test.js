@@ -346,6 +346,94 @@ if (!L.hasJsdom()) {
     eq(g.run('G.units[0].anim'), null, '播放後應清掉，避免重複觸發');
   });
 
+  suite('介面 · 除錯選單');
+
+  test('F2 開關，預設隱藏', async () => {
+    const g = await boot();
+    const vis = () => g.visible('debugPanel');
+    eq(vis(), false, '預設應隱藏');
+    const key = k => g.d.dispatchEvent(new g.w.KeyboardEvent('keydown', { key: k, bubbles: true }));
+    key('F2'); eq(vis(), true, 'F2 應開啟');
+    key('F2'); eq(vis(), false, '再按應關閉');
+  });
+
+  test('寶石可設為 99999 或 0，且有存檔', async () => {
+    const g = await boot();
+    g.run('dbgGems(99999)');
+    eq(g.run('save.gems'), 99999);
+    eq(g.d.getElementById('gemHud').textContent.includes('99999'), true, '畫面要跟著更新');
+    g.run('dbgGems(0)');
+    eq(g.run('save.gems'), 0);
+  });
+
+  test('收藏全滿：每張卡都達到同名上限', async () => {
+    const g = await boot();
+    g.run('dbgCollection("full")');
+    const kinds = g.run('Object.keys(CARDS).length');
+    eq(g.run('Object.keys(save.collection).length'), kinds, '每張卡都要有');
+    eq(g.run(`Object.values(save.collection).every(n=>n===COPY_MAX)`), true);
+  });
+
+  test('收藏初始：回到剛好能組滿一副牌的狀態', async () => {
+    const g = await boot();
+    g.run('dbgCollection("full"); dbgCollection("starter");');
+    const total = g.run('Object.values(save.collection).reduce((a,b)=>a+b,0)');
+    eq(total, g.run('(STARTER_N.length + STARTER_CIV[save.civ].length * Object.keys(CIVS).length) * COPY_MAX'));
+    g.run("go('deckbuild'); autoFill();");
+    eq(g.d.getElementById('deckCount').textContent, g.run('DECK_SIZE') + ' / ' + g.run('DECK_SIZE'),
+      '初始收藏仍應剛好湊滿');
+  });
+
+  test('收藏變少時，已存的牌組會被清成合法狀態', async () => {
+    const g = await boot();
+    g.run("go('deckbuild'); dbgCollection('full'); autoFill();");
+    const full = g.run('deck.slice()');
+    ok(full.length === g.run('DECK_SIZE'));
+    g.run("dbgCollection('starter'); go('menu'); go('deckbuild');");
+    const legal = g.run(`deck.every(id => {
+      const c = CARDS[id];
+      return c && (c.civ === 'N' || c.civ === save.civ) && (save.collection[id] || 0) > 0;
+    })`);
+    eq(legal, true, '牌組不該留下已經不擁有的卡');
+  });
+
+  test('清空存檔會先確認，取消則不動', async () => {
+    const g = await boot();
+    g.run('dbgGems(555); dbgResetSave();');
+    ok(g.d.getElementById('banner').classList.contains('on'), '應跳確認');
+    g.click(g.d.getElementById('bCancel'));
+    eq(g.run('save.gems'), 555, '取消不該清掉');
+    g.run('dbgResetSave()');
+    g.click(g.d.getElementById('bOk'));
+    eq(g.run('save.gems'), 120, '確認後回到初始寶石');
+    eq(g.visible('menu'), true, '應回到主選單');
+  });
+
+  test('對戰用的按鈕在非對戰時停用', async () => {
+    const g = await boot();
+    g.run('toggleDebug()');
+    const disabled = () => [...g.d.querySelectorAll('#debugPanel .dbgBattle')].every(b => b.disabled);
+    eq(disabled(), true, '主選單時應停用');
+    g.run("go('deckbuild'); autoFill(); startBattle(); finishMulligan(); renderDebug();");
+    eq(disabled(), false, '對戰中應可用');
+  });
+
+  test('對戰輔助功能實際生效', async () => {
+    const g = await boot();
+    g.run("go('deckbuild'); autoFill(); startBattle(); finishMulligan();");
+    g.run('G.P.hp = 3; dbgCastle("P");');
+    eq(g.run('G.P.hp'), g.run('CASTLE_HP'));
+    g.run('dbgCastle("E")');
+    eq(g.run('G.E.hp'), 1);
+    g.run('dbgGold()');
+    eq(g.run('G.P.gold'), g.run('GOLD_MAX'));
+    const before = g.run('G.P.front.slice()');
+    g.run('dbgLand()');
+    eq(g.run('G.P.front.slice()'), before.map(n => n + 1));
+    g.run('G.P.hand=[]; dbgDraw();');
+    eq(g.run('G.P.hand.length'), 3);
+  });
+
   suite('介面 · 相剋表');
 
   test('內容由 COUNTER_TABLE 推導，不是寫死的', async () => {

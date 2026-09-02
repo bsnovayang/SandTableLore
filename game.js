@@ -92,6 +92,11 @@ function boot(){
   fitCodex();
   if(typeof addEventListener==='function') addEventListener('resize',fitCodex);
 
+  // 除錯選單：F2 在任何畫面都能開
+  document.addEventListener('keydown',e=>{
+    if(e.key==='F2'){ toggleDebug(); e.preventDefault(); }
+  });
+
   // 4) 鍵盤快捷鍵
   document.addEventListener('keydown',e=>{
     if(!G||G.over||!document.getElementById('battle').classList.contains('active')) return;
@@ -108,7 +113,7 @@ function boot(){
   // 5) 檢查程式碼依賴的「id 當全域變數」是否真的成立
   const need=['gemHud','civList','pool','deckList','deckCount','startBtn','packResult','turnInfo',
     'enemyInfo','hint','board','log','castleP','castleE','php','ehp','goldTxt','deckTxt',
-    'villGold','villLand','heroBtn','endBtn','hand','banner','bTitle','bText','buffTxt','undoBtn','bOk','bCancel','mullBanner','mullCards','mullOk','fx','codex'];
+    'villGold','villLand','heroBtn','endBtn','hand','banner','bTitle','bText','buffTxt','undoBtn','bOk','bCancel','mullBanner','mullCards','mullOk','fx','codex','debugPanel','dbgState'];
   const bad=need.filter(id=>{
     const el=document.getElementById(id);
     if(!el) return true;                 // HTML 裡根本沒這個元素
@@ -158,13 +163,17 @@ const store={
    ========================================================= */
 const SAVE=SAVE_KEY;
 let save = load();
+/* 起始收藏：基本中立 ×2 + 每個文明兩張招牌卡 ×2 = 剛好 20 張，其餘靠卡包解鎖 */
+function starterCollection(){
+  const col={};
+  STARTER_N.forEach(c=>col[c]=COPY_MAX);
+  Object.values(STARTER_CIV).forEach(list=>list.forEach(c=>col[c]=COPY_MAX));
+  return col;
+}
+function defaultSave(){ return {gems:120, collection:starterCollection(), civ:'brit', decks:{}}; }
 function load(){
   try{ const s=JSON.parse(store.get(SAVE)); if(s&&s.collection) return s; }catch(e){}
-  // 起始只給「基本中立 ×2 + 每個文明兩張招牌卡 ×2」= 剛好 20 張，其餘靠卡包解鎖
-  const col={};
-  STARTER_N.forEach(c=>col[c]=2);
-  Object.values(STARTER_CIV).forEach(list=>list.forEach(c=>col[c]=2));
-  return {gems:120, collection:col, civ:'brit', decks:{}};
+  return defaultSave();
 }
 function persist(){ store.set(SAVE,JSON.stringify(save)); paintGems(); }
 function paintGems(){ ['gemHud','gemDeck','gemShop'].forEach(id=>{
@@ -274,7 +283,20 @@ function autoFill(){
   }
   renderDeckbuild();
 }
-function openDeckbuild(){ deck=(save.decks[save.civ]||[]).slice(); renderDeckbuild(); }
+/* 依目前的收藏與文明過濾牌組 —— 收藏被改小（或換文明）時，
+   已存的牌組可能含有不再合法的卡，不清掉就會帶著違規牌組進場 */
+function sanitizeDeck(list){
+  const used={};
+  return list.filter(id=>{
+    const c=CARDS[id];
+    if(!c) return false;
+    if(c.civ!=='N' && c.civ!==save.civ) return false;
+    const own=Math.min(COPY_MAX, save.collection[id]||0);
+    used[id]=(used[id]||0)+1;
+    return used[id]<=own;
+  });
+}
+function openDeckbuild(){ deck=sanitizeDeck((save.decks[save.civ]||[]).slice()); renderDeckbuild(); }
 function clearDeck(){ deck=[]; renderDeckbuild(); }
 
 function cardEl(id,extraCls){
@@ -1120,6 +1142,7 @@ function render(){
     board.appendChild(row);
   }
   renderCodex();
+  if(debugOpen) renderDebug();
   playFx();
 
   // 手牌
@@ -1138,6 +1161,76 @@ function render(){
     hand.appendChild(el);
   });
 }
+
+/* =========================================================
+   除錯選單（F2）
+   ---------------------------------------------------------
+   原型階段的測試輔助。正式版把 index.html 的 #debugPanel、
+   style.css 的 #debugPanel 區塊，以及這一段整個刪掉即可。
+   ========================================================= */
+let debugOpen=false;
+function toggleDebug(){
+  debugOpen=!debugOpen;
+  const el=document.getElementById('debugPanel');
+  if(!el||!el.classList) return;
+  el.classList.toggle('on',debugOpen);
+  renderDebug();
+}
+function inBattle(){
+  const b=document.getElementById('battle');
+  return !!(G && !G.over && b && b.classList && b.classList.contains('active'));
+}
+function renderDebug(){
+  const st=document.getElementById('dbgState');
+  if(st){
+    const kinds=Object.keys(save.collection).filter(k=>save.collection[k]>0).length;
+    const total=Object.values(save.collection).reduce((a,b)=>a+b,0);
+    st.textContent=`💎 ${save.gems}　收藏 ${kinds} 種 / ${total} 張`
+      + (inBattle()?`　｜ 對戰中：城堡 ${G.P.hp}–${G.E.hp}`:'　｜ 未在對戰');
+  }
+  const on=inBattle();
+  const list=document.querySelectorAll('#debugPanel .dbgBattle');
+  if(list&&list.forEach) list.forEach(b=>{ b.disabled=!on; });
+}
+function dbgAfterSave(){
+  persist();
+  if(document.getElementById('deckbuild').classList.contains('active')) openDeckbuild();
+  renderDebug();
+}
+function dbgGems(n){ save.gems=n; dbgAfterSave(); }
+function dbgCollection(mode){
+  if(mode==='starter'){
+    save.collection=starterCollection();
+    save.decks={};                       // 舊牌組多半已不合法，直接清掉
+  }else{
+    const col={};
+    Object.keys(CARDS).forEach(id=>col[id]=COPY_MAX);
+    save.collection=col;
+  }
+  dbgAfterSave();
+}
+function dbgResetSave(){
+  dialog('清空存檔？','寶石、收藏與所有牌組都會回到初始狀態，這個動作無法復原。',
+    {confirm:true, okText:'清空', onYes:()=>{
+      save=defaultSave(); persist();
+      if(G) G.over=true;
+      go('menu'); renderDebug();
+    }});
+}
+function dbgCastle(side){
+  if(!inBattle()) return;
+  if(side==='P') G.P.hp=CASTLE_HP; else G.E.hp=1;
+  say(`<b>[除錯]</b> ${side==='P'?'我方城堡回滿':'敵方城堡設為 1'}`);
+  render(); renderDebug();
+}
+function dbgGold(){ if(!inBattle()) return; G.P.max=GOLD_MAX; G.P.gold=GOLD_MAX; say('<b>[除錯]</b> 金幣拉滿'); render(); }
+function dbgDraw(){ if(!inBattle()) return; for(let i=0;i<3;i++) draw('P'); say('<b>[除錯]</b> 抽 3 張'); render(); }
+function dbgLand(){
+  if(!inBattle()) return;
+  for(let l=0;l<LANES;l++) if(G.P.front[l]+G.E.front[l]<COLS) G.P.front[l]++;
+  say('<b>[除錯]</b> 三路領土 +1'); render();
+}
+function dbgClearBoard(){ if(!inBattle()) return; G.units=[]; G.selUnit=null; say('<b>[除錯]</b> 清空盤面'); render(); }
 
 /* =========================================================
    NPC

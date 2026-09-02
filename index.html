@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>沙盤傳說 — 中世紀卡牌戰棋</title>
-<link rel="stylesheet" href="style.css?v=27">
+<link rel="stylesheet" href="style.css?v=28">
 </head>
 <body>
 <div id="fatal"></div>
@@ -111,6 +111,37 @@
   <div style="margin-top:18px"><button class="primary" id="mullOk" onclick="finishMulligan()">開始對戰</button></div>
 </div></div>
 
+<!-- 除錯選單（F2 開關）。原型階段用，正式版可整段移除 -->
+<div id="debugPanel">
+  <div class="dbgHead"><b>🐞 除錯選單</b><span class="dbgKey">F2 關閉</span></div>
+  <div class="dbgState" id="dbgState"></div>
+  <div class="dbgSec">存檔</div>
+  <div class="dbgRow">
+    <button onclick="dbgGems(99999)">💎 99999</button>
+    <button onclick="dbgGems(0)">💎 0</button>
+  </div>
+  <div class="dbgRow">
+    <button onclick="dbgCollection('starter')">🃏 收藏：初始</button>
+    <button onclick="dbgCollection('full')">🃏 收藏：全滿</button>
+  </div>
+  <div class="dbgRow">
+    <button class="danger" onclick="dbgResetSave()">🗑 清空存檔並回主選單</button>
+  </div>
+  <div class="dbgSec">對戰中</div>
+  <div class="dbgRow">
+    <button class="dbgBattle" onclick="dbgCastle('P')">🏰 我方城堡回滿</button>
+    <button class="dbgBattle" onclick="dbgCastle('E')">💥 敵方城堡剩 1</button>
+  </div>
+  <div class="dbgRow">
+    <button class="dbgBattle" onclick="dbgGold()">🪙 金幣上限拉滿</button>
+    <button class="dbgBattle" onclick="dbgDraw()">🃏 抽 3 張</button>
+  </div>
+  <div class="dbgRow">
+    <button class="dbgBattle" onclick="dbgLand()">🚩 三路領土 +1</button>
+    <button class="dbgBattle" onclick="dbgClearBoard()">🧹 清空盤面</button>
+  </div>
+</div>
+
 <!-- 特效層：蓋在畫面上、不吃點擊 -->
 <div id="fx"></div>
 
@@ -124,10 +155,10 @@
 </div></div>
 
 <!-- 資料層（先載入）：改卡片／文明只需要動 data/ 底下的檔案 -->
-<script defer src="data/rules.js?v=27"></script>
-<script defer src="data/cards.js?v=27"></script>
-<script defer src="data/civs.js?v=27"></script>
+<script defer src="data/rules.js?v=28"></script>
+<script defer src="data/cards.js?v=28"></script>
+<script defer src="data/civs.js?v=28"></script>
 <!-- 邏輯層 -->
-<script defer src="game.js?v=27"></script>
+<script defer src="game.js?v=28"></script>
 </body>
 </html>
