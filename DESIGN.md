@@ -214,6 +214,10 @@ data/rules.js       規則常數：路數、格數、城堡血量、金幣上限
 data/cards.js       卡牌資料（42 張）＋ 中立清單 ＋ 起始收藏設定
 data/civs.js        文明資料（名稱、英雄、特色、技能）
 game.js             引擎：戰鬥、AI、UI、存檔
+tools/loadgame.js   共用載入器：把四個檔重現成 Node 可執行的環境
+tools/sim.js        AI 對戰平衡模擬器
+tools/check.js      一鍵回歸
+tests/              51 項測試（規則／法術／介面／端對端）
 ```
 
 載入順序在 `index.html` 中固定為 `rules → cards → civs → game`（`defer`，依序執行）。
@@ -240,6 +244,25 @@ halberd:{kind:'I',n:'戟兵',cost:4,atk:4,hp:6,def:1,rng:1,spd:1,tags:['步兵']
 文明 france 的起始卡 longbow 其實屬於 brit
 ```
 它也會檢查「起始收藏是否剛好湊得滿 20 張牌組」，避免新增文明時忘了配起始卡。
+
+### 開發流程
+```bash
+npm install       # 只為了測試用的 jsdom，遊戲本身不需要任何相依
+npm run check     # 一鍵回歸：語法 → 資料驗證 → 51 項測試 → 平衡模擬
+npm run sim -- 200 --trace   # 加大樣本並統計相剋觸發率
+npm run decks     # 印出各文明的 AI 牌組（用來確認牌組真的有文明特色）
+```
+
+**改動任何規則或數值後請跑 `npm run check`。**
+
+測試刻意涵蓋幾類「人眼容易漏、jsdom 抓得到」的問題，都是實際踩過才補的：
+- 畫面切換要斷言 `getComputedStyle(el).display`，不能只斷言 class
+- 卡面的絕對定位元素兩兩比對 `top/right/bottom/left`，定位相同就必定重疊
+- 單位的每一種狀態組合都要有對應的畫面標示
+- 「打不到的敵人」必須給出原因，不能靜默無反應
+
+驗證測試本身有效的方式：故意把 `COUNTER_BONUS` 改成 0、讓召喚失調失效、把卡牌的
+`kind` 打錯字 —— 三種破壞都被準確攔下並指出位置。
 
 ### 相剋改為查表
 `data/rules.js` 的 `COUNTER_TABLE` 定義誰剋誰，引擎只做查表。
