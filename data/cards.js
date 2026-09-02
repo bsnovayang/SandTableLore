@@ -67,10 +67,10 @@ const CARDS = {
   // ================= 條頓（7）=================
   barricade:{kind:'B',n:'路障',cost:2,atk:0,hp:10,def:1,rng:0,spd:0,tags:['建築'],kw:['building','thorns'],thorns:2,civ:'teuton',t:'建築 · 荊棘2（每回合傷害周圍敵人）'},
   tower:  {kind:'B',n:'箭塔',cost:4,atk:2,hp:7,def:1,rng:2,spd:0,tags:['建築'],kw:['building'],civ:'teuton',t:'建築 · 射程2 的防禦砲台'},
-  spearline:{kind:'I',n:'條頓長槍陣',cost:3,atk:3,hp:6,def:1,rng:1,spd:1,tags:['步兵'],civ:'teuton',t:'堅實的守備步兵'},
+  spearline:{kind:'I',n:'條頓長槍陣',cost:5,atk:3,hp:6,def:1,rng:1,spd:1,tags:['步兵'],civ:'teuton',t:'堅實的守備步兵'},
   teutonic:{kind:'I',n:'條頓騎士',cost:4,atk:5,hp:6,def:1,rng:1,spd:1,tags:['步兵'],civ:'teuton'},
   stonewall:{kind:'B',n:'石牆',cost:5,atk:0,hp:10,def:1,rng:0,spd:0,tags:['建築'],kw:['building','thorns'],thorns:2,civ:'teuton',t:'建築 · 荊棘2 · 高血量的封路手段'},
-  ballista:{kind:'B',n:'弩砲',cost:6,atk:3,hp:6,def:1,rng:3,spd:0,tags:['建築'],kw:['building'],civ:'teuton',t:'建築 · 射程3'},
+  ballista:{kind:'B',n:'弩砲',cost:6,atk:2,hp:6,def:1,rng:3,spd:0,tags:['建築'],kw:['building'],civ:'teuton',t:'建築 · 射程3'},
   repair: {n:'修繕',cost:3,type:'spell',target:'allyBuilding',civ:'teuton',t:'一個友方建築回復 6 點血量'},
 };
 const NEUTRAL = ['militia','palisade','levy','spear','archer','scout','heal','warhorn',

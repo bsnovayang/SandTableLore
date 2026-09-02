@@ -449,6 +449,34 @@ if (!L.hasJsdom()) {
     eq(dmg, ['-' + (before - g.run('G.E.hp'))], '傷害數字要與城堡實際扣血一致');
   });
 
+  /* 先前的測試只檢查「元素存在、transform 正確」，卻沒檢查它看不看得見 ——
+     結果 `#fx > *{opacity:0}`（特異性 1-0-0）蓋掉了刀光容器的 opacity，
+     容器本身沒有動畫可以覆蓋，就全程透明。這條守住可見度。 */
+  test('每個特效元素都真的看得見（不會被祖先的 opacity 蓋掉）', async () => {
+    const g = await battle();
+    g.run(`G.P.hand=['sword'];  playCard('P',0,1,1); G.units[0].sick=false;
+           G.E.hand=['militia'];playCard('E',0,1,2);
+           G.P.hand=['archer']; playCard('P',0,0,1); G.units[2].sick=false;
+           G.E.hand=['pike'];   playCard('E',0,0,3);
+           render();`);
+    fakeLayout(g);
+    g.run(`attack(G.units[0],G.units[1]); attack(G.units[2],G.units[3]); cleanup(); render();`);
+    const seen = [];
+    ['.fx-slash', '.fx-blade', '.fx-arrow', '.fx-dmg', '.fx-die'].forEach(sel => {
+      const el = g.d.querySelector('#fx ' + sel);
+      ok(el, '應產生 ' + sel);
+      seen.push(sel);
+      // 逐層往上檢查 opacity：只要有一層是 0，畫面上就什麼都看不到
+      for (let n = el; n && n.id !== 'fx'; n = n.parentElement) {
+        const st = g.w.getComputedStyle(n);
+        const hasAnim = st.animationName && st.animationName !== 'none';
+        ok(!(parseFloat(st.opacity) === 0 && !hasAnim),
+          `${sel} 的祖先 .${n.className || n.tagName} opacity 為 0 且沒有動畫可覆蓋 → 永遠看不見`);
+      }
+    });
+    eq(seen.length, 5);
+  });
+
   test('特效層不會攔截點擊', async () => {
     const g = await boot();
     eq(g.w.getComputedStyle(g.d.getElementById('fx')).pointerEvents, 'none');
