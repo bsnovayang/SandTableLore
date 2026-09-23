@@ -832,6 +832,122 @@ if (!L.hasJsdom()) {
       '跳過時不該連續彈跳');
   });
 
+  suite('介面 · 開包華麗特效');
+
+  test('破封印會有白閃、光爆與火花', async () => {
+    const g = await shop();
+    g.run('buyPack(); packBreak();');
+    ok(g.d.getElementById('packBanner').classList.contains('flash'), '應有全畫面白閃');
+    ok(g.d.querySelector('#packFx .burst'), '應有光爆圈');
+    ok(g.d.querySelectorAll('#packFx .spark').length >= 20, '火花數量應足以讀成爆裂');
+  });
+
+  test('火花的角度與距離是隨機的，不是同一條線', async () => {
+    const g = await shop();
+    g.run('buyPack(); packBreak();');
+    const angles = [...g.d.querySelectorAll('#packFx .spark')]
+      .map(e => e.style.getPropertyValue('--a'));
+    ok(new Set(angles).size > 10, '角度應分散，實際只有 ' + new Set(angles).size + ' 種');
+    const dists = [...g.d.querySelectorAll('#packFx .spark')]
+      .map(e => parseFloat(e.style.getPropertyValue('--d')));
+    ok(Math.max(...dists) - Math.min(...dists) > 40, '距離應有差異');
+  });
+
+  test('特效元素都真的看得見，且不擋點擊', async () => {
+    const g = await shop();
+    g.run('buyPack(); packBreak();');
+    eq(g.w.getComputedStyle(g.d.getElementById('packFx')).pointerEvents, 'none',
+      '特效層不該攔截點擊');
+    ['.burst', '.spark'].forEach(sel => {
+      const el = g.d.querySelector('#packFx ' + sel);
+      ok(el, '應有 ' + sel);
+      for (let n = el; n && n.id !== 'packFx'; n = n.parentElement) {
+        const st = g.w.getComputedStyle(n);
+        ok(!(parseFloat(st.opacity) === 0 && animName(st) === 'none'),
+          sel + ' 的祖先透明且無動畫 → 永遠看不見');
+      }
+    });
+  });
+
+  test('翻到英雄級會觸發全畫面演出', async () => {
+    const g = await shop();
+    g.run(`buyPack();
+           const h = Object.keys(CARDS).find(id => CARDS[id].rarity === 'H');
+           packState.cards = [{id:h, dup:false, dust:0}];
+           packDeal(); packFlip(0, packCards.children[0]);`);
+    ok(g.d.getElementById('packStage').className.includes('legendary'), '應進入英雄演出');
+    ok(g.d.querySelector('#packCards .flipCard.hero'), '該卡應被標為主角');
+    ok(g.d.querySelector('#packFx .godray'), '應有旋轉光柱');
+    ok(g.d.querySelectorAll('#packFx .spark.gold').length >= 20, '應有金色火花');
+    // 主角放大、其他卡退場
+    ok(/scale\(1\.55\)/.test(g.w.getComputedStyle(g.d.querySelector('.flipCard.hero')).transform),
+      '主角應放大');
+  });
+
+  test('普通與精良不會觸發英雄演出', async () => {
+    const g = await shop();
+    g.run(`buyPack();
+           const c = Object.keys(CARDS).find(id => CARDS[id].rarity === 'C');
+           packState.cards = [{id:c, dup:false, dust:0}];
+           packDeal(); packFlip(0, packCards.children[0]);`);
+    ok(!g.d.getElementById('packStage').className.includes('legendary'));
+    eq(g.d.querySelector('#packFx .godray'), null);
+  });
+
+  // 先破封印讓特效層真的有東西，否則這條測試不管程式碼在不在都會過
+  test('破封印後再跳過，特效會被清乾淨', async () => {
+    const g = await shop();
+    g.run('buyPack(); packBreak();');
+    ok(g.d.querySelectorAll('#packFx *').length > 0, '前提：破封印後特效層有東西');
+    g.run(`const h = Object.keys(CARDS).find(id => CARDS[id].rarity === 'H');
+           packState.cards = [{id:h, dup:false, dust:0}];
+           packSkip();`);
+    eq(g.d.querySelectorAll('#packFx *').length, 0, '跳過應清掉殘留的特效');
+    ok(!g.d.getElementById('packStage').className.includes('legendary'),
+      '跳過不該觸發英雄演出');
+  });
+
+  test('卡片從中心弧線飛出（起始偏移左右對稱）', async () => {
+    const g = await shop();
+    g.run('buyPack(); packDeal();');
+    const fx = [...g.d.querySelectorAll('#packCards .flipCard')]
+      .map(e => parseFloat(e.style.getPropertyValue('--fx')));
+    eq(fx.length, g.run('PACK_SIZE'));
+    ok(fx[0] > 0 && fx[fx.length - 1] < 0, '兩端應往相反方向飛出：' + fx.join(','));
+    eq(fx[Math.floor(fx.length / 2)], 0, '中間那張不偏移');
+  });
+
+  test('滑鼠傾斜只綁一次，不會重複累積監聽器', async () => {
+    const g = await shop();
+    g.run('buyPack(); packDeal(); packDeal(); packDeal();');
+    eq(g.d.getElementById('packCards').dataset.tilt, '1');
+  });
+
+  test('特效的 keyframes 不動用會觸發重排的屬性', async () => {
+    const css = require('fs').readFileSync(require('path').join(L.ROOT, 'style.css'), 'utf8');
+    const block = css.slice(css.indexOf('開包的華麗特效'));
+    // 手動掃出每組 @keyframes 的內容（正則處理不了巢狀大括號）
+    const frames = [];
+    let idx = 0;
+    while ((idx = block.indexOf('@keyframes', idx)) !== -1) {
+      const open = block.indexOf('{', idx);
+      let depth = 0, end = open;
+      for (let i = open; i < block.length; i++) {
+        if (block[i] === '{') depth++;
+        else if (block[i] === '}') { depth--; if (depth === 0) { end = i; break; } }
+      }
+      frames.push(block.slice(open + 1, end));
+      idx = end + 1;
+    }
+    ok(frames.length >= 6, '應有多組 keyframes，實際 ' + frames.length);
+    // 動這些屬性會觸發重排，粒子一多就會掉幀
+    const banned = ['left:', 'top:', 'right:', 'bottom:', 'width:', 'height:', 'margin:', 'padding:'];
+    frames.forEach((f, i) => {
+      const hit = banned.find(b => f.includes(b));
+      ok(!hit, '第 ' + (i + 1) + ' 組 keyframes 動到了 ' + hit + '（會觸發重排）');
+    });
+  });
+
   test('商店會顯示各稀有度機率與重複轉換規則', async () => {
     const g = await boot();
     g.run("go('shop')");

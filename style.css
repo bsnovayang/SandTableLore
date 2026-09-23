@@ -315,7 +315,6 @@ h1,h2,h3{font-weight:700;margin:0}
 .wax{position:absolute;width:96px;height:96px;cursor:pointer;z-index:2;
   filter:drop-shadow(0 6px 12px rgba(0,0,0,.55));
   animation:waxBreathe 2.4s ease-in-out infinite}
-@keyframes waxBreathe{0%,100%{transform:scale(1)}50%{transform:scale(1.04)}}
 .wax:hover{animation:none;transform:scale(1.07)}
 .phase-breaking .wax,.phase-cards .wax{pointer-events:none;animation:none}
 .wax-half{position:absolute;inset:0;border-radius:50%;
@@ -358,12 +357,7 @@ h1,h2,h3{font-weight:700;margin:0}
 /* ---------- 第二幕：翻牌 ---------- */
 .packCards{display:none;gap:16px;perspective:1200px}
 .phase-cards .packCards{display:flex}
-.flipCard{width:104px;height:146px;cursor:pointer;animation:dealIn .32s backwards}
-@keyframes dealIn{
-  from{opacity:0;transform:translateY(26px) scale(.9)}
-  70% {opacity:1;transform:translateY(-4px) scale(1.02)}
-  to  {opacity:1;transform:none}
-}
+.flipCard{width:104px;height:146px;cursor:pointer}
 /* 落定過衝：翻面結束時卡片輕彈一下。跳過（.instant）時不播，避免連續彈跳很吵。
    放在 .flipFront 上是因為 .flipCard 已被 dealIn 佔用，
    而 .flipInner 的 transform 由翻面的 transition 控制，都不能再加動畫。 */
@@ -373,9 +367,7 @@ h1,h2,h3{font-weight:700;margin:0}
   100%{transform:rotateY(180deg) scale(1)}
 }
 .flipCard.flipped:not(.instant) .flipFront{animation:settle .34s .38s ease-out}
-.flipInner{position:relative;width:100%;height:100%;
-  transition:transform .5s cubic-bezier(.3,.9,.3,1);transform-style:preserve-3d}
-.flipCard.flipped .flipInner{transform:rotateY(180deg)}
+.flipInner{position:relative;width:100%;height:100%;transform-style:preserve-3d}
 .flipCard.instant .flipInner{transition:none}
 .flipFace{position:absolute;inset:0;backface-visibility:hidden;border-radius:9px}
 .flipBack{display:grid;place-items:center;font-size:34px;color:#8e6a3a;
@@ -430,3 +422,119 @@ h1,h2,h3{font-weight:700;margin:0}
 .card.rarC{border-color:#4a5560}
 .card.rarR{border-color:#3d6d96}
 .card.rarH{border-color:#9c6a1e;box-shadow:0 0 10px rgba(216,149,42,.3)}
+
+/* =========================================================
+   開包的華麗特效
+   ---------------------------------------------------------
+   全部只動 transform 與 opacity —— 這兩個屬性由合成器處理，
+   粒子一多也不會觸發重排重繪。用 left/top/width 做動畫會明顯掉幀。
+   ========================================================= */
+
+/* 特效層墊在最底下，不吃點擊 */
+.packFx{position:absolute;inset:0;pointer-events:none;z-index:0;overflow:visible}
+.packStage > *:not(.packFx){position:relative;z-index:1}
+
+/* ---------- 全畫面白閃 ---------- */
+#packBanner.flash::after{
+  content:'';position:fixed;inset:0;background:#fff;pointer-events:none;z-index:60;
+  animation:packFlash .34s ease-out forwards}
+@keyframes packFlash{
+  0%  {opacity:0}
+  12% {opacity:.72}
+  100%{opacity:0}
+}
+
+/* ---------- 光爆圈 ---------- */
+.burst{position:absolute;left:50%;top:50%;width:120px;height:120px;margin:-60px 0 0 -60px;
+  border-radius:50%;pointer-events:none;
+  background:radial-gradient(circle,rgba(255,240,205,.95) 0%,rgba(255,196,110,.55) 38%,
+    rgba(255,170,80,0) 70%);
+  animation:burstOut .62s cubic-bezier(.15,.8,.3,1) forwards}
+@keyframes burstOut{
+  0%  {opacity:1;transform:scale(.15)}
+  55% {opacity:.9}
+  100%{opacity:0;transform:scale(7)}
+}
+
+/* ---------- 火花 ---------- */
+.spark{position:absolute;left:50%;top:50%;width:var(--s,4px);height:var(--s,4px);
+  border-radius:50%;pointer-events:none;
+  background:radial-gradient(circle,#fff 0%,#ffd9a0 45%,rgba(255,170,80,0) 72%);
+  animation:sparkFly var(--t,.8s) cubic-bezier(.1,.7,.3,1) forwards}
+.spark.gold{background:radial-gradient(circle,#fff8e0 0%,#f0c46a 45%,rgba(216,149,42,0) 72%);
+  box-shadow:0 0 8px rgba(240,196,106,.8)}
+@keyframes sparkFly{
+  0%  {opacity:1;transform:rotate(var(--a,0deg)) translateX(0) scale(1)}
+  70% {opacity:.9}
+  100%{opacity:0;transform:rotate(var(--a,0deg)) translateX(var(--d,180px)) scale(.25)}
+}
+
+/* ---------- 光柱（英雄級）：重複的 conic 楔形，用 mask 讓邊緣淡出 ---------- */
+.godray{position:absolute;left:50%;top:50%;width:1000px;height:1000px;margin:-500px 0 0 -500px;
+  pointer-events:none;
+  background:repeating-conic-gradient(from 0deg,
+    rgba(255,205,120,.30) 0deg 3.5deg, rgba(255,205,120,0) 3.5deg 16deg);
+  -webkit-mask-image:radial-gradient(circle,#000 6%,rgba(0,0,0,.65) 26%,transparent 58%);
+  mask-image:radial-gradient(circle,#000 6%,rgba(0,0,0,.65) 26%,transparent 58%);
+  animation:rayIn .5s ease-out both, raySpin 14s linear infinite}
+@keyframes rayIn{from{opacity:0;transform:scale(.6)}to{opacity:1;transform:scale(1)}}
+@keyframes raySpin{to{transform:rotate(360deg)}}
+
+/* ---------- 英雄級：其他卡退場，主角置中放大，畫面轉暖 ---------- */
+.packStage.legendary .flipCard:not(.hero){
+  opacity:.22;filter:grayscale(.6) brightness(.5);transition:opacity .35s,filter .35s}
+.packStage.legendary .flipCard.hero{
+  transform:scale(1.55) translateY(-6px);z-index:3;
+  transition:transform .45s cubic-bezier(.2,1.5,.4,1)}
+.packStage.legendary{animation:warmTint 2.3s ease-out}
+@keyframes warmTint{
+  0%,100%{filter:none}
+  15%    {filter:saturate(1.35) brightness(1.12)}
+}
+/* 震動加重一點，配合光柱 */
+.packStage.quake{animation:packQuake .62s}
+
+/* ---------- 卡片：飛出、傾斜、光澤、hover ---------- */
+.flipCard{
+  /* --fx/--fr 由 JS 依序號設定，讓卡片從中心弧線飛出 */
+  animation:dealFly .46s cubic-bezier(.2,.9,.25,1) backwards}
+@keyframes dealFly{
+  0%  {opacity:0;transform:translate(var(--fx,0),34px) rotate(var(--fr,0deg)) scale(.72)}
+  65% {opacity:1;transform:translate(0,-6px) rotate(0deg) scale(1.04)}
+  100%{opacity:1;transform:none}
+}
+/* 滑鼠 3D 傾斜。--tx/--ty 由 bindCardTilt() 設定 */
+.flipInner{transform:rotateX(var(--tx,0deg)) rotateY(var(--ty,0deg));
+  transition:transform .5s cubic-bezier(.3,.9,.3,1)}
+.flipCard.flipped .flipInner{
+  transform:rotateX(var(--tx,0deg)) rotateY(calc(180deg + var(--ty,0deg)))}
+.packCards:hover .flipCard{transition:transform .2s}
+.flipCard:hover{transform:translateY(-10px)}
+
+/* 金屬光澤掃過。英雄級持續循環，其餘只在 hover 時掃一次。 */
+.flipFront::before{content:'';position:absolute;inset:0;border-radius:9px;overflow:hidden;
+  background:linear-gradient(105deg,transparent 38%,rgba(255,255,255,.42) 48%,
+    rgba(255,240,200,.55) 52%,transparent 62%);
+  background-size:260% 100%;background-position:180% 0;pointer-events:none;z-index:2}
+.flipCard:hover .flipFront::before{animation:shine .7s ease-out}
+.flipCard.shine .flipFront::before{animation:shine 2.1s ease-in-out .4s infinite}
+@keyframes shine{from{background-position:180% 0}to{background-position:-80% 0}}
+
+/* ---------- 卡背紋章：用 CSS 畫，取代 emoji ---------- */
+.flipBack{position:relative;overflow:hidden}
+.flipBack::before{content:'';position:absolute;inset:0;
+  background:
+    repeating-conic-gradient(from 0deg,rgba(255,255,255,.045) 0deg 6deg,transparent 6deg 12deg),
+    repeating-linear-gradient(45deg,rgba(0,0,0,.18) 0 3px,transparent 3px 6px);
+  opacity:.8}
+.flipBack::after{content:'';position:absolute;left:50%;top:50%;width:62px;height:62px;
+  margin:-31px 0 0 -31px;border-radius:50%;
+  border:1px solid currentColor;box-shadow:0 0 0 6px rgba(0,0,0,.18),inset 0 0 0 5px rgba(0,0,0,.2);
+  opacity:.45}
+.flipBack span{position:relative;z-index:1}
+
+/* ---------- 封印在等待時輕輕浮動 ---------- */
+@keyframes waxBreathe{
+  0%,100%{transform:scale(1) translateY(0)}
+  50%    {transform:scale(1.04) translateY(-3px)}
+}

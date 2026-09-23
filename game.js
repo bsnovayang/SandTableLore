@@ -128,7 +128,7 @@ function _boot(){
   // 5) 檢查程式碼依賴的「id 當全域變數」是否真的成立
   const need=['gemHud','civList','pool','deckList','deckCount','startBtn','packResult','turnInfo',
     'enemyInfo','hint','board','log','castleP','castleE','php','ehp','goldTxt','deckTxt',
-    'villGold','villLand','heroBtn','endBtn','hand','banner','bTitle','bText','buffTxt','undoBtn','bOk','bCancel','mullBanner','mullCards','mullOk','fx','codex','debugPanel','dbgState','packBanner','packStage','packHint','packCards','packFoot'];
+    'villGold','villLand','heroBtn','endBtn','hand','banner','bTitle','bText','buffTxt','undoBtn','bOk','bCancel','mullBanner','mullCards','mullOk','fx','codex','debugPanel','dbgState','packBanner','packStage','packHint','packCards','packFoot','packFx'];
   const bad=need.filter(id=>{
     const el=document.getElementById(id);
     if(!el) return true;                 // HTML 裡根本沒這個元素
@@ -397,6 +397,7 @@ function packBreak(){
   packStage.className='packStage phase-breaking';
   packHint.textContent='';
   sfxCrack();
+  fxFlash(); fxBurst(); fxSparks(26,{reach:260});
   setTimeout(()=>{ if(packState&&packState.phase==='breaking') packDeal(); }, 760);
 }
 
@@ -427,9 +428,14 @@ function packDeal(){
     }
     inner.appendChild(back); inner.appendChild(front);
     wrap.appendChild(inner);
+    // 從中心弧線飛出：依序號決定起始偏移與旋轉
+    const mid=(packState.cards.length-1)/2;
+    wrap.style.setProperty('--fx', ((mid-i)*70)+'px');
+    wrap.style.setProperty('--fr', ((i-mid)*-14)+'deg');
     wrap.onclick=()=>packFlip(i,wrap);
     packCards.appendChild(wrap);
   });
+  bindCardTilt();
   packFoot.innerHTML='<span class="packTip">點卡片翻面</span>';
 }
 
@@ -442,8 +448,12 @@ function packFlip(i,wrap){
     wrap.classList.add('shine');
     packStage.classList.add('quake');
     sfxRare();
-    setTimeout(()=>packStage.classList.remove('quake'),420);
-  }else sfxFlip();
+    fxLegendary(wrap);
+    setTimeout(()=>packStage.classList.remove('quake'),620);
+  }else{
+    sfxFlip();
+    fxSparks(rar==='R'?10:5,{reach:90,spread:60});
+  }
   if(packState.flipped.size===packState.cards.length) packDone();
 }
 
@@ -451,6 +461,8 @@ function packFlip(i,wrap){
 function packSkip(){
   if(!packState) return;
   packDeal();
+  const layer=document.getElementById('packFx');
+  if(layer) layer.innerHTML='';        // 跳過就不播任何特效
   packState.cards.forEach((c,i)=>{
     packState.flipped.add(i);
     const w=packCards.children[i];
@@ -492,6 +504,89 @@ function renderShopHint(){
     + '超過同名上限 '+COPY_MAX+' 張的卡自動轉成寶石（'
     + RARITY_ORDER.map(r=>RARITY[r].n+' 💎'+RARITY[r].dust).join('／')
     + '）。</div></div>';
+}
+
+/* ---------- 華麗特效：光爆、火花、光柱、英雄級演出 ----------
+   全部只動 transform 與 opacity —— 這兩個屬性由合成器處理，
+   粒子一多也不會觸發重排重繪。跳過路徑完全不播這些。 */
+
+/* 全畫面白閃。用 class 觸發，動畫結束自己移除，才能重複播放。 */
+function fxFlash(){
+  packBanner.classList.remove('flash');
+  void packBanner.offsetWidth;          // 強制重排，讓動畫能重新開始
+  packBanner.classList.add('flash');
+}
+
+/* 火花四射。n 顆，各自隨機角度、距離、大小、時長。 */
+function fxSparks(n, opt){
+  const o=opt||{};
+  const layer=document.getElementById('packFx');
+  if(!layer||typeof layer.appendChild!=='function') return;
+  for(let i=0;i<n;i++){
+    const s=document.createElement('i');
+    s.className='spark'+(o.gold?' gold':'');
+    s.style.setProperty('--a', (Math.random()*360)+'deg');
+    s.style.setProperty('--d', (60+Math.random()*(o.reach||220))+'px');
+    s.style.setProperty('--s', (3+Math.random()*5).toFixed(1)+'px');
+    s.style.setProperty('--t', (0.5+Math.random()*0.65).toFixed(2)+'s');
+    s.style.animationDelay=(Math.random()*(o.spread||120))+'ms';
+    layer.appendChild(s);
+    s.addEventListener('animationend',()=>s.remove());
+  }
+}
+
+/* 從中心擴散的光爆圈 */
+function fxBurst(){
+  const layer=document.getElementById('packFx');
+  if(!layer||typeof layer.appendChild!=='function') return;
+  const ring=document.createElement('i');
+  ring.className='burst';
+  layer.appendChild(ring);
+  ring.addEventListener('animationend',()=>ring.remove());
+}
+
+/* 英雄級的全畫面演出：其他卡淡出、該卡置中放大、背後光柱、火花、震動 */
+function fxLegendary(wrap){
+  const stage=packStage, layer=document.getElementById('packFx');
+  if(!stage||!stage.classList) return;
+  if(wrap&&wrap.classList) wrap.classList.add('hero');
+  stage.classList.add('legendary');
+  if(layer&&typeof layer.appendChild==='function'){
+    const ray=document.createElement('i');
+    ray.className='godray';
+    layer.appendChild(ray);
+    setTimeout(()=>ray.remove(), 2600);
+  }
+  fxFlash();
+  fxSparks(34,{gold:true, reach:300, spread:260});
+  setTimeout(()=>fxSparks(20,{gold:true, reach:340, spread:200}), 420);
+  setTimeout(()=>{
+    stage.classList.remove('legendary');
+    if(wrap&&wrap.classList) wrap.classList.remove('hero');
+  }, 2300);
+}
+
+/* 卡片跟隨滑鼠的 3D 傾斜。用事件委派，發牌後不必逐張綁定。 */
+function bindCardTilt(){
+  const box=document.getElementById('packCards');
+  if(!box||typeof box.addEventListener!=='function'||box.dataset.tilt) return;
+  box.dataset.tilt='1';
+  box.addEventListener('mousemove',e=>{
+    const card=e.target.closest&&e.target.closest('.flipCard');
+    if(!card||typeof card.getBoundingClientRect!=='function') return;
+    const r=card.getBoundingClientRect();
+    if(!r.width) return;
+    const px=(e.clientX-r.left)/r.width-0.5;      // -0.5 ~ 0.5
+    const py=(e.clientY-r.top)/r.height-0.5;
+    card.style.setProperty('--tx', (-py*16).toFixed(2)+'deg');
+    card.style.setProperty('--ty', ( px*16).toFixed(2)+'deg');
+  });
+  box.addEventListener('mouseleave',()=>{
+    [...box.children].forEach(c=>{
+      c.style.setProperty('--tx','0deg');
+      c.style.setProperty('--ty','0deg');
+    });
+  });
 }
 
 /* ---------- 音效：Web Audio 合成，不需要音檔 ---------- */

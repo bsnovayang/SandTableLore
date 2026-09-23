@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>沙盤傳說 — 中世紀卡牌戰棋</title>
-<link rel="stylesheet" href="style.css?v=31">
+<link rel="stylesheet" href="style.css?v=32">
 </head>
 <body>
 <div id="fatal"></div>
@@ -113,6 +113,8 @@
 
 <!-- 開包儀式：封印 → 羊皮紙展開 → 翻牌 -->
 <div class="banner" id="packBanner"><div class="packStage" id="packStage">
+  <!-- 特效層：光爆、火花、光柱。放最底層且不吃點擊 -->
+  <div class="packFx" id="packFx"></div>
   <div class="packSkip"><button onclick="packSkip()">跳過 &#9656;</button></div>
 
   <!-- 第一幕：羊皮紙軍令與火漆封印 -->
@@ -178,10 +180,10 @@
 </div></div>
 
 <!-- 資料層（先載入）：改卡片／文明只需要動 data/ 底下的檔案 -->
-<script defer src="data/rules.js?v=31"></script>
-<script defer src="data/cards.js?v=31"></script>
-<script defer src="data/civs.js?v=31"></script>
+<script defer src="data/rules.js?v=32"></script>
+<script defer src="data/cards.js?v=32"></script>
+<script defer src="data/civs.js?v=32"></script>
 <!-- 邏輯層 -->
-<script defer src="game.js?v=31"></script>
+<script defer src="game.js?v=32"></script>
 </body>
 </html>
