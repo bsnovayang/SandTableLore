@@ -34,6 +34,15 @@ if (!L.hasJsdom()) {
     return new Promise(res => setTimeout(() => res(api), 60));
   }
 
+  /* jsdom 的 cssstyle 不會把 `animation` 簡寫展開成 animationName（永遠回傳 "none"），
+     所以要自己從簡寫字串取出動畫名稱，否則會把有動畫的元素誤判成沒有。 */
+  function animName(style) {
+    if (style.animationName && style.animationName !== 'none') return style.animationName;
+    const toks = (style.animation || '').split(/\s+/).filter(Boolean);
+    const notName = /^(\d|\.|infinite$|normal$|none$|forwards$|backwards$|both$|linear$|ease|cubic-bezier|steps|alternate|reverse|running|paused)/;
+    return toks.find(t => !notName.test(t)) || 'none';
+  }
+
   suite('介面 · 開機');
 
   test('開機自檢通過，警告條被移除', async () => {
@@ -639,7 +648,7 @@ if (!L.hasJsdom()) {
       // 逐層往上檢查 opacity：只要有一層是 0，畫面上就什麼都看不到
       for (let n = el; n && n.id !== 'fx'; n = n.parentElement) {
         const st = g.w.getComputedStyle(n);
-        const hasAnim = st.animationName && st.animationName !== 'none';
+        const hasAnim = animName(st) !== 'none';
         ok(!(parseFloat(st.opacity) === 0 && !hasAnim),
           `${sel} 的祖先 .${n.className || n.tagName} opacity 為 0 且沒有動畫可覆蓋 → 永遠看不見`);
       }
@@ -770,6 +779,57 @@ if (!L.hasJsdom()) {
     g.run('closePack(); buyPack();');
     eq(g.d.querySelectorAll('#packCards .flipCard.flipped').length, g.run('PACK_SIZE'),
       '下次應直接是翻開狀態');
+  });
+
+  test('卡背依稀有度發光，讓懸念在翻開前就開始', async () => {
+    const g = await shop();
+    g.run(`buyPack();
+           packState.cards = [
+             {id:Object.keys(CARDS).find(i=>CARDS[i].rarity==='C'), dup:false, dust:0},
+             {id:Object.keys(CARDS).find(i=>CARDS[i].rarity==='R'), dup:false, dust:0},
+             {id:Object.keys(CARDS).find(i=>CARDS[i].rarity==='H'), dup:false, dust:0}];
+           packDeal();`);
+    const backs = [...g.d.querySelectorAll('#packCards .flipBack')];
+    eq(backs.map(b => b.className.split(' ').pop()), ['back-C', 'back-R', 'back-H']);
+    // 普通不發光、精良與英雄要有脈動動畫
+    const anim = i => animName(g.w.getComputedStyle(backs[i]));
+    eq(anim(0), 'none', '普通卡背不該發光');
+    ok(anim(1) !== 'none', '精良卡背應發光');
+    ok(anim(2) !== 'none', '英雄卡背應發光');
+    ok(anim(1) !== anim(2), '精良與英雄的光效要分得出來');
+  });
+
+  test('每包都至少有一張會發光的卡背（保底保證）', async () => {
+    const g = await shop();
+    for (let i = 0; i < 20; i++) {
+      g.run('save.collection = {}; closePack(); buyPack(); packDeal();');
+      const glowing = [...g.d.querySelectorAll('#packCards .flipBack')]
+        .filter(b => /back-(R|H)/.test(b.className)).length;
+      ok(glowing >= 1, `第 ${i + 1} 包沒有任何發光卡背`);
+    }
+  });
+
+  test('最好的一張留到最後翻', async () => {
+    const g = await shop();
+    for (let i = 0; i < 15; i++) {
+      g.run('save.collection = {}; closePack(); buyPack();');
+      const order = g.run('packState.cards.map(c => RARITY_ORDER.indexOf(CARDS[c.id].rarity))');
+      const sorted = order.slice().sort((a, b) => a - b);
+      eq(order, sorted, '稀有度應由低到高排列，最好的在最後');
+    }
+  });
+
+  test('翻面後有落定過衝，跳過時不播', async () => {
+    const g = await shop();
+    g.run('buyPack(); packBreak(); packDeal();');
+    const front = () => g.d.querySelector('#packCards .flipFront');
+    eq(animName(g.w.getComputedStyle(front())), 'none', '未翻面時不該有');
+    g.click(g.d.querySelector('#packCards .flipCard'));
+    eq(animName(g.w.getComputedStyle(front())), 'settle', '翻面後應彈一下');
+
+    g.run('closePack(); buyPack(); packSkip();');
+    eq(animName(g.w.getComputedStyle(g.d.querySelector('#packCards .flipFront'))), 'none',
+      '跳過時不該連續彈跳');
   });
 
   test('商店會顯示各稀有度機率與重複轉換規則', async () => {

@@ -378,6 +378,9 @@ function openPack(){
 let packState=null;
 
 function showPackOpening(cards){
+  // 最好的留到最後翻 —— 隨機順序下英雄卡可能第一張就翻掉，後面兩張變成反高潮
+  cards=cards.slice().sort((x,y)=>
+    RARITY_ORDER.indexOf(CARDS[x.id].rarity)-RARITY_ORDER.indexOf(CARDS[y.id].rarity));
   packState={cards, flipped:new Set(), phase:'seal'};
   packBanner.classList.add('on');
   packStage.className='packStage phase-seal';
@@ -410,7 +413,8 @@ function packDeal(){
     const inner=document.createElement('div');
     inner.className='flipInner';
     const back=document.createElement('div');
-    back.className='flipFace flipBack';
+    // 卡背依稀有度發光：把懸念從「翻開的那 0.5 秒」拉長到整段等待
+    back.className='flipFace flipBack back-'+CARDS[c.id].rarity;
     back.innerHTML='<span>&#9876;</span>';
     const front=document.createElement('div');
     front.className='flipFace flipFront rar-'+CARDS[c.id].rarity;
